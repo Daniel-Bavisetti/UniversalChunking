@@ -5,3 +5,4 @@ data/jobs/
 .DS_Store
 nohup.out
 .idea/
+.env
