@@ -127,11 +127,15 @@ def _atomic_units(e: ContentElement, captions: list[ContentElement],
     heading_path = graph.heading_path(e.id)
     grid: list[list[str]] = e.meta.get("grid", [])
     header: list[str] = e.meta.get("header_row", [])
+    visual: dict = e.meta.get("visual") or {}
     leading, trailing = graph.surrounding_text(e.id)
 
     def make(content: str, reason: str, vetoed: list[str], part: str | None = None):
+        # A figure that vision understood is no longer "uncaptioned" in the sense
+        # the flag means — something now states what it shows.
+        described = bool(cap_text) or bool(e.meta.get("visual", {}).get("description"))
         flags = escalation_flags(content, heading_path, "atomic",
-                                 kind=e.kind, has_caption=bool(cap_text))
+                                 kind=e.kind, has_caption=described)
         return KnowledgeUnit(
             id=new_unit_id(),
             content=content,
@@ -145,18 +149,39 @@ def _atomic_units(e: ContentElement, captions: list[ContentElement],
                 signals={"caption_confidence":
                          1.0 if e.meta.get("caption_ids") else (0.8 if cap_text else 0.0)},
             ),
-            metadata={"element_kind": e.kind, **({"part": part} if part else {})},
+            entities=list(visual.get("visual_entities", []))[:8],
+            metadata={
+                "element_kind": e.kind,
+                **({"part": part} if part else {}),
+                # Provenance for every visual claim in the content: which models
+                # ran, which did not and why. An empty field stays explainable.
+                **({"visual": visual, "visual_type": visual.get("visual_type")}
+                   if visual else {}),
+                **({"visual_skipped": e.meta["visual_skipped"]}
+                   if e.meta.get("visual_skipped") else {}),
+            },
             token_count=count_tokens(content),
         )
 
-    body = e.text if e.kind == "table" else ""
+    # A figure's text is its visual understanding (see figures.py / vision.py).
+    # Before that existed this was always "" for figures, which is how a figure
+    # unit ended up as a placeholder with nothing to retrieve.
+    body = e.text
     full = "\n\n".join(x for x in (cap_text, body) if x)
     if not full:
         full = f"[uncaptioned {e.kind} on page {e.page}]"
 
     if count_tokens(full) <= MAX_TOKENS or not grid:
-        reason = (f"{e.kind} kept whole with its caption — severing the pair is vetoed"
-                  if cap_text else f"{e.kind} kept as one unit")
+        if e.kind == "figure" and e.meta.get("visual"):
+            vtype = (e.meta.get("visual_type") or "figure").replace("_", " ")
+            reason = (f"{vtype} kept whole with its caption and what the picture "
+                      "shows — severing the pair is vetoed"
+                      if cap_text else
+                      f"{vtype} kept as one unit — its content is what vision read "
+                      "off the picture")
+        else:
+            reason = (f"{e.kind} kept whole with its caption — severing the pair is vetoed"
+                      if cap_text else f"{e.kind} kept as one unit")
         yield make(full, reason, vetoed=[])
         return
 
