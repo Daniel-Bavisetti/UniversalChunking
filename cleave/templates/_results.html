@@ -31,8 +31,9 @@
 
   {% if totals.flagged_for_enrichment and not totals.use_llm %}
   <p class="mt-2.5 text-[11.5px] text-[color:var(--faint)]">
-    {{ totals.flagged_for_enrichment }} chunk(s) could have used a situating summary, but LLM
-    summarization was switched off for this job — they stayed at tier 0.
+    {{ totals.flagged_for_enrichment }} chunk(s) could have used an LLM situating summary, but
+    summarization was switched off for this job — where possible they carry a local
+    extractive gist (tier 1, no model call) instead.
   </p>
   {% endif %}
 
@@ -50,6 +51,14 @@
           <span class="mono text-[13px] font-semibold text-white">{{ f.filename }}</span>
           <span class="chip {{ chip.get(f.profile.route, chip['paragraph_fallback']) }}">{{ f.profile.route }}</span>
         </div>
+        {% if f.error %}
+        <p class="mono mt-1.5 text-[12px] leading-relaxed text-rose-300/90">{{ f.error }}</p>
+        {% if f.hint %}
+        <p class="mt-1.5 rounded-lg border border-[color:var(--line)] bg-[color:var(--surface)]
+                  px-3 py-2 text-[12px] leading-relaxed text-[color:var(--muted)]">
+          <span class="font-semibold text-white">Why & what to do:</span> {{ f.hint }}</p>
+        {% endif %}
+        {% else %}
         <p class="mt-1.5 text-[12.5px] leading-relaxed text-[color:var(--muted)]">{{ f.profile.route_reason }}</p>
         {% if f.cleaning and f.cleaning.total_fixes %}
         <p class="mt-1.5 text-[11px] text-[color:var(--faint)]">
@@ -58,6 +67,7 @@
         {% for w in f.warnings %}
         <p class="mt-1 text-[11px] text-amber-300/85">⚠ {{ w }}</p>
         {% endfor %}
+        {% endif %}
       </div>
       {% endfor %}
     </div>
@@ -338,10 +348,17 @@
       {% endif %}
 
       {% if u.context.situating_summary %}
+      {% if u.context.tier == 1 %}
+      <div class="mt-3 rounded-xl border border-sky-400/25 bg-sky-500/[.07] px-3.5 py-2.5">
+        <span class="label !text-sky-400/90">gist — local extractive fallback, no model call</span>
+        <p class="mt-1 text-[12.5px] leading-relaxed text-sky-100/90">{{ u.context.situating_summary }}</p>
+      </div>
+      {% else %}
       <div class="mt-3 rounded-xl border border-emerald-400/25 bg-emerald-500/[.07] px-3.5 py-2.5">
         <span class="label !text-emerald-400/90">situating context</span>
         <p class="mt-1 text-[12.5px] leading-relaxed text-emerald-100/90">{{ u.context.situating_summary }}</p>
       </div>
+      {% endif %}
       {% endif %}
 
       {# ── visual evidence: every claim carries the model that made it ── #}

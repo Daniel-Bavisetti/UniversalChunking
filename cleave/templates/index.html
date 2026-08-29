@@ -130,6 +130,47 @@
     </div>
   </section>
 
+  {# ── samples: one click per data type ── #}
+  <section id="samples" class="pb-4">
+    <div class="card p-5">
+      <div class="flex flex-wrap items-baseline justify-between gap-2">
+        <span class="label">Try it on a sample</span>
+        <span class="text-[11.5px] text-[color:var(--muted)]">
+          one input per data type — each exercises a different route</span>
+      </div>
+      <form action="/api/samples" method="post" class="mt-3.5">
+        <input type="hidden" name="use_llm" id="use-llm-sample" value="true">
+        <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {% for key, s in samples.items() %}
+          <button type="submit" name="name" value="{{ key }}"
+                  class="card-quiet group flex items-start gap-2.5 px-3.5 py-3 text-left
+                         transition-colors hover:border-[color:var(--line-strong)]
+                         hover:bg-[color:var(--surface-2)]">
+            <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full" style="background:{{ s.tone }}"></span>
+            <span class="min-w-0">
+              <span class="block text-[13px] font-semibold text-white group-hover:text-[#8fb3ff]">
+                {{ s.label }}</span>
+              <span class="mt-0.5 block text-[11.5px] leading-relaxed text-[color:var(--faint)]">
+                {{ s.desc }}</span>
+            </span>
+          </button>
+          {% endfor %}
+          <button type="submit" name="name" value="all"
+                  class="group flex items-start gap-2.5 rounded-[14px] border border-[color:var(--brand)]/40
+                         bg-[color:var(--brand-soft)] px-3.5 py-3 text-left transition-colors
+                         hover:border-[color:var(--brand)]/70">
+            <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--brand)]"></span>
+            <span class="min-w-0">
+              <span class="block text-[13px] font-semibold text-[#8fb3ff]">Everything at once</span>
+              <span class="mt-0.5 block text-[11.5px] leading-relaxed text-[color:var(--muted)]">
+                all {{ samples | length }} samples as one job — each routed on its own merits</span>
+            </span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
+
   {# ── system status ── #}
   <section id="status" class="pb-4">
     {% include "_system_status.html" %}
@@ -317,7 +358,10 @@
 
 <script>
   document.getElementById('use-llm-toggle').addEventListener('change', (e) => {
-    document.getElementById('use-llm-field').value = e.target.checked ? 'true' : 'false';
+    const v = e.target.checked ? 'true' : 'false';
+    document.getElementById('use-llm-field').value = v;
+    const s = document.getElementById('use-llm-sample');
+    if (s) s.value = v;   // samples honor the same toggle
   });
 
   document.getElementById('upload-form').addEventListener('submit', (e) => {

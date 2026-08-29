@@ -45,6 +45,42 @@ _CONTRACT_EXTS = {".json"}     # payloads from external modality workers (CONTRA
 
 _ACCEPTED = _DOC_EXTS | _AUDIO_EXTS | _CONTRACT_EXTS | _IMAGE_EXTS | _VIDEO_EXTS
 
+#: One-click demo inputs, one per data type the pipeline understands. Paths are
+#: repo-relative; big fixtures are reused rather than duplicated. Each entry
+#: names the route it exercises so the homepage can say WHY it is interesting.
+SAMPLES: dict[str, dict] = {
+    "report":   {"path": "tests/fixtures/executive_summary.pdf",
+                 "label": "PDF report", "kind": "document", "tone": "#4d82ff",
+                 "desc": "sections, tables and figures — structural route"},
+    "essay":    {"path": "tests/fixtures/flat_essay.md",
+                 "label": "Markdown essay", "kind": "document", "tone": "#4d82ff",
+                 "desc": "flat prose, no headings — semantic topic drift"},
+    "webpage":  {"path": "data/samples/product_page.html",
+                 "label": "HTML page", "kind": "web", "tone": "#38bdf8",
+                 "desc": "headings and a spec table — structural route"},
+    "csv":      {"path": "tests/fixtures/sales_q3.csv",
+                 "label": "CSV dataset", "kind": "spreadsheet", "tone": "#2dd4bf",
+                 "desc": "480 rows — schema card + header-repeating row groups"},
+    "workbook": {"path": "tests/fixtures/people_ops.xlsx",
+                 "label": "Excel workbook", "kind": "spreadsheet", "tone": "#2dd4bf",
+                 "desc": "three sheets, each profiled separately"},
+    "json":     {"path": "data/samples/orders.json",
+                 "label": "JSON records", "kind": "data", "tone": "#c084fc",
+                 "desc": "a plain API export — chunked as data, not rejected"},
+    "chart":    {"path": "data/samples/quarterly_chart.png",
+                 "label": "Chart image", "kind": "image", "tone": "#f59e0b",
+                 "desc": "OCR + objects + what the picture asserts"},
+    "meeting":  {"path": "tests/fixtures/audio_sample.m4a",
+                 "label": "Meeting audio", "kind": "audio", "tone": "#34d399",
+                 "desc": "transcribed and speaker-labelled, chunked by turns"},
+    "video":    {"path": "data/fixture.mp4",
+                 "label": "Screencast video", "kind": "video", "tone": "#f472b6",
+                 "desc": "four topics found by scene + speech + topic signals"},
+    "contract": {"path": "tests/fixtures/video_contract.json",
+                 "label": "Worker contract", "kind": "data", "tone": "#c084fc",
+                 "desc": "an external worker's payload — CONTRACT.md in action"},
+}
+
 
 def _ensure_logging() -> None:
     """Cleave's own INFO lines reach the console however the app was started.
@@ -253,6 +289,33 @@ def _input_name(input_path) -> str:
     return input_path if isinstance(input_path, str) else Path(input_path).name
 
 
+def _failure_hint(reason: str) -> str:
+    """One sentence of what-to-do for the person reading a failure, matched on
+    the raw exception text. The raw error stays shown; this sits next to it."""
+    r = reason.lower()
+    if "contract version" in r:
+        return ("This file declares a \"contract\" key, so it was read as a modality-"
+                "worker payload. Set \"contract\": 1 (see CONTRACT.md) — or remove the "
+                "key and the file will be chunked as ordinary JSON data.")
+    if "unsupported document type" in r or "unsupported image type" in r \
+            or "unsupported video type" in r:
+        return "This extension isn't handled yet — the accepted formats are listed on the upload form."
+    if "expecting value" in r or "jsondecodeerror" in r:
+        return "The file isn't valid JSON — check for a trailing comma or a truncated download."
+    if "stt worker" in r:
+        return ("Transcription needs an engine: install the 'video' and 'meetings' extras "
+                "for local ASR, or start the STT worker on the port in CLEAVE_STT_URL.")
+    if "no content could be extracted" in r:
+        return ("The page returned no usable text — it may need JavaScript rendering "
+                "(install the 'web-rendered' extra) or it may block automated fetches.")
+    if "not an http(s) url" in r:
+        return "Only http:// and https:// links can be fetched."
+    if "exceeds" in r and "mb" in r:
+        return "The upload limit is 50 MB per file — trim the file or raise MAX_UPLOAD."
+    return ("The full traceback is in the server log. The other files in this job "
+            "were processed normally.")
+
+
 def _failure_meta(input_path, reason: str) -> dict:
     """A files_meta entry for an input that failed, so the results page shows
     the failure alongside the files that worked instead of erasing it."""
@@ -260,6 +323,7 @@ def _failure_meta(input_path, reason: str) -> dict:
     return {
         "filename": name, "title": None, "source": str(input_path),
         "error": reason,
+        "hint": _failure_hint(reason),
         "warnings": [f"processing failed — {reason}"],
         "profile": {"route": "failed", "route_reason": reason},
         "cleaning": None, "figures": None,
@@ -566,6 +630,7 @@ def index(request: Request):
         "jobs": jobs, "scorecard": scorecard,
         "usage": read_cumulative(), "providers": describe_providers(),
         "checks": checks, "banner": enrichment_banner(checks),
+        "samples": SAMPLES,
     })
 
 
@@ -655,6 +720,39 @@ async def create_job(background: BackgroundTasks,
     job = Job(id=job_id, filename=_display_name(names), filenames=names,
              files=[FileState(name=n) for n in names],
              use_llm=use_llm.lower() not in ("false", "0", "off", "no"))
+    JOBS[job_id] = job
+    background.add_task(run_job, job_id, dest_paths)
+    return RedirectResponse(f"/jobs/{job_id}", status_code=303)
+
+
+@app.post("/api/samples")
+async def run_sample(background: BackgroundTasks, name: str = Form(...),
+                     use_llm: str = Form("true")):
+    """Start a job from bundled sample inputs — `name` is a SAMPLES key, or
+    'all' for one combined job across every data type."""
+    keys = list(SAMPLES) if name == "all" else [name]
+    unknown = [k for k in keys if k not in SAMPLES]
+    if unknown:
+        raise HTTPException(404, f"unknown sample {unknown[0]!r}")
+
+    job_id = uuid.uuid4().hex[:10]
+    dest_dir = DATA / job_id / "input"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    names: list[str] = []
+    dest_paths: list[Path | str] = []
+    for k in keys:
+        src = ROOT / SAMPLES[k]["path"]
+        if not src.exists():
+            shutil.rmtree(dest_dir.parent, ignore_errors=True)
+            raise HTTPException(500, f"sample file missing on disk: {SAMPLES[k]['path']}")
+        dest = dest_dir / src.name
+        shutil.copy2(src, dest)
+        names.append(dest.name)
+        dest_paths.append(dest)
+
+    job = Job(id=job_id, filename=_display_name(names), filenames=names,
+              files=[FileState(name=n) for n in names],
+              use_llm=use_llm.lower() not in ("false", "0", "off", "no"))
     JOBS[job_id] = job
     background.add_task(run_job, job_id, dest_paths)
     return RedirectResponse(f"/jobs/{job_id}", status_code=303)

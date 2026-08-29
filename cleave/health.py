@@ -219,7 +219,8 @@ def _check_llm() -> Check:
     provider = get_provider()
     if provider.name == "none":
         return Check("llm", "LLM enrichment", False, "not_configured",
-                     "no provider configured — deterministic mode, chunks stay at tier 0")
+                     "no provider configured — flagged chunks get a local extractive "
+                     "gist (tier 1) instead of an LLM summary")
 
     text, usage = provider.complete_json(
         'Reply with {"ok":"yes"}.',

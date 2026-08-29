@@ -44,10 +44,20 @@ def load_contract(path: str | Path) -> tuple[IngestResult | None, list[Knowledge
     """
     path = Path(path)
     payload = json.loads(path.read_text())
+
+    # Only a file that DECLARES itself a contract is held to the contract.
+    # Everything else is ordinary JSON — records, an API response, a config —
+    # and gets chunked as data rather than rejected for not being something it
+    # never claimed to be.
+    if not isinstance(payload, dict) or "contract" not in payload:
+        return _ingest_generic_json(path, payload), []
+
     version = payload.get("contract")
     if version != SUPPORTED_CONTRACT:
         raise ValueError(
-            f"unsupported contract version {version!r}; this build speaks {SUPPORTED_CONTRACT}"
+            f"contract version {version!r} is not supported; this build speaks "
+            f"contract {SUPPORTED_CONTRACT} — set \"contract\": 1, or remove the "
+            "key entirely to have the file chunked as plain JSON data"
         )
     source_uri = payload.get("source_uri") or str(path)
     prefix = path.stem[:12]
@@ -143,3 +153,129 @@ def _unit_from(d: dict[str, Any], source_uri: str, prefix: str, i: int) -> Knowl
         metadata=d.get("metadata") or {},
         token_count=int(d.get("token_count") or count_tokens(content)),
     )
+
+
+# ───────── generic JSON (no contract declared) ─────────
+
+def _ingest_generic_json(path: Path, payload: Any) -> IngestResult:
+    """Ordinary JSON, chunked as data.
+
+    Two shapes are recognized, because they are what JSON in the wild almost
+    always is:
+
+    * an **array of records** (or a dict whose largest value is one) becomes a
+      table grid — which downstream triggers the tabular route: a schema card
+      profiling every column, then header-repeating row groups. A JSON export
+      of 500 orders gets exactly the treatment the CSV of it would.
+    * anything else is walked into ``key: value`` lines under headings taken
+      from the top-level keys, so nesting survives as hierarchy instead of
+      being flattened into one blob.
+    """
+    elements: list[ContentElement] = []
+    counter = 0
+
+    def new_id() -> str:
+        nonlocal counter
+        eid = f"el_{counter:04d}"
+        counter += 1
+        return eid
+
+    records, records_key = _find_records(payload)
+    if records is not None:
+        grid = _records_to_grid(records)
+        elements.append(ContentElement(
+            id=new_id(), kind="table",
+            text="\n".join("| " + " | ".join(r) + " |" for r in grid),
+            meta={"grid": grid, "header_row": grid[0],
+                  "sheet": records_key},
+        ))
+        # Scalar keys alongside the array (counts, cursors, metadata) are
+        # context worth keeping, not noise.
+        if isinstance(payload, dict):
+            scalars = {k: v for k, v in payload.items()
+                       if k != records_key and not isinstance(v, (dict, list))}
+            if scalars:
+                lines = "\n".join(f"{k}: {v}" for k, v in scalars.items())
+                elements.append(ContentElement(
+                    id=new_id(), kind="paragraph", text=lines))
+    else:
+        for line_group in _walk_json(payload):
+            kind, level, text = line_group
+            elements.append(ContentElement(
+                id=new_id(), kind=kind, level=level, text=text))
+
+    from .cleaning import clean_elements  # noqa: PLC0415
+
+    report = clean_elements(elements)
+    elements = [e for e in elements if e.text or e.kind == "table"]
+    shape = (f"{len(records)} records" if records is not None
+             else f"{len(elements)} elements")
+    log.info("generic JSON %s: %s", path.name, shape)
+    return IngestResult(
+        elements=elements,
+        title=path.stem,
+        source_uri=str(path),
+        sha256=sha256_of(str(path)),
+        warnings=[],
+        cleaning=report.to_dict(),
+    )
+
+
+def _find_records(payload: Any) -> tuple[list[dict] | None, str | None]:
+    """The array of homogeneous flat-ish records, if this JSON is one.
+
+    → (records, key) — key is None when the payload IS the array.
+    """
+    def is_records(v: Any) -> bool:
+        return (isinstance(v, list) and len(v) >= 2
+                and all(isinstance(r, dict) for r in v)
+                and len({frozenset(r) for r in v}) <= max(3, len(v) // 4))
+
+    if is_records(payload):
+        return payload, None
+    if isinstance(payload, dict):
+        candidates = [(k, v) for k, v in payload.items() if is_records(v)]
+        if candidates:
+            key, records = max(candidates, key=lambda kv: len(kv[1]))
+            return records, key
+    return None, None
+
+
+def _cell(v: Any) -> str:
+    if v is None:
+        return ""
+    if isinstance(v, (dict, list)):
+        return json.dumps(v, ensure_ascii=False)[:120]
+    return str(v)
+
+
+def _records_to_grid(records: list[dict]) -> list[list[str]]:
+    header: list[str] = []
+    for r in records:
+        for k in r:
+            if k not in header:
+                header.append(k)
+    return [header] + [[_cell(r.get(k)) for k in header] for r in records]
+
+
+def _walk_json(payload: Any, key: str = "", depth: int = 0):
+    """Depth-first walk → (kind, level, text) triples. Dict keys at the top two
+    levels become headings, so the router can see the document's real shape."""
+    if isinstance(payload, dict):
+        if key and depth <= 2:
+            yield ("heading", depth, key)
+        for k, v in payload.items():
+            if isinstance(v, (dict, list)):
+                yield from _walk_json(v, k, depth + 1)
+            else:
+                yield ("paragraph", None, f"{k}: {_cell(v)}")
+    elif isinstance(payload, list):
+        if key and depth <= 2:
+            yield ("heading", depth, key)
+        for i, v in enumerate(payload):
+            if isinstance(v, (dict, list)):
+                yield from _walk_json(v, f"{key}[{i}]", depth + 1)
+            else:
+                yield ("list_item", None, _cell(v))
+    else:
+        yield ("paragraph", None, _cell(payload))
