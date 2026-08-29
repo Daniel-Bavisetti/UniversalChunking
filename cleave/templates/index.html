@@ -26,31 +26,38 @@
         Chunks that keep<br>their meaning.
       </h1>
       <p class="mt-5 max-w-xl text-[15px] leading-relaxed text-[color:var(--muted)]">
-        Most pipelines flatten a file to text and split every N tokens — tables lose their headers,
-        captions lose their figures, answers lose their questions. Cleave profiles the input first,
-        maps the relationships inside it, and refuses the cuts that would break them.
+        Structure-aware chunking for documents, media and web pages — cuts that never
+        sever a table from its header or a caption from its figure.
       </p>
 
       <form action="/api/jobs" method="post" enctype="multipart/form-data"
             id="upload-form" class="mt-8 max-w-xl" novalidate>
-        <div class="card flex flex-col gap-3 p-3 sm:flex-row sm:items-center">
-          <label for="file-input" class="min-w-0 flex-1 cursor-pointer px-2">
-            <input type="file" name="files" id="file-input" multiple
-                   accept=".pdf,.docx,.pptx,.xlsx,.csv,.md,.txt,.html,.mp3,.m4a,.wav,.flac,.json,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,.gif,.mp4,.mov,.mkv,.webm,.avi,.m4v"
-                   class="block w-full cursor-pointer text-sm text-[color:var(--muted)]
-                          file:mr-3 file:cursor-pointer file:rounded-full file:border-0
-                          file:bg-[color:var(--surface-3)] file:px-3.5 file:py-2
-                          file:text-[13px] file:font-semibold file:text-white
-                          hover:file:bg-[#24365c]">
-          </label>
-          <button type="submit" id="submit-btn" class="btn shrink-0 justify-center">
-            <span id="btn-label">Cleave it</span>
-            <span class="btn-arrow">
-              <svg viewBox="0 0 16 16" class="h-3 w-3" fill="none" stroke="currentColor"
-                   stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 8h9M8.5 4.5L12 8l-3.5 3.5"/></svg>
-            </span>
-          </button>
+        <div class="card p-3">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <button type="button" id="pick-btn"
+                    class="shrink-0 cursor-pointer rounded-full bg-[color:var(--surface-3)]
+                           px-4 py-2 text-[13px] font-semibold text-white hover:bg-[#24365c]">
+              Choose files
+            </button>
+            <span id="file-summary" class="min-w-0 flex-1 truncate text-sm text-[color:var(--muted)]">
+              No files chosen</span>
+            <button type="submit" id="submit-btn" class="btn shrink-0 justify-center">
+              <span id="btn-label">Cleave it</span>
+              <span class="btn-arrow">
+                <svg viewBox="0 0 16 16" class="h-3 w-3" fill="none" stroke="currentColor"
+                     stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 8h9M8.5 4.5L12 8l-3.5 3.5"/></svg>
+              </span>
+            </button>
+          </div>
+          <input type="file" name="files" id="file-input" multiple class="hidden"
+                 accept=".pdf,.docx,.pptx,.xlsx,.csv,.md,.txt,.html,.htm,.mp3,.m4a,.wav,.flac,.aac,.ogg,.json,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,.gif,.mp4,.mov,.mkv,.webm,.avi,.m4v">
+          <ul id="file-list" class="mt-2 hidden flex-col gap-1.5"></ul>
+          <div id="file-actions" class="mt-2 hidden justify-end">
+            <button type="button" id="clear-files"
+                    class="text-[12px] font-medium text-[color:var(--faint)] hover:text-rose-300">
+              Clear all files</button>
+          </div>
         </div>
 
         {# a URL is an input like any other: fetched to Markdown, then chunked
@@ -66,6 +73,12 @@
                  placeholder="…or paste a web page URL (https://…)"
                  class="field !border-0 !bg-transparent !px-1 !py-1 flex-1 !text-[13px]
                         focus:!shadow-none">
+          <button type="button" id="clear-url" title="Clear" style="display:none"
+                  class="shrink-0 h-6 w-6 place-items-center rounded-full
+                         text-[color:var(--faint)] hover:bg-[color:var(--surface-3)] hover:text-white">
+            <svg viewBox="0 0 16 16" class="h-3 w-3" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+          </button>
         </div>
 
         <label class="mt-3 flex cursor-pointer items-center gap-2.5 px-2 text-[12.5px] text-[color:var(--muted)]">
@@ -76,36 +89,34 @@
             <span class="pointer-events-none absolute left-0.5 h-4 w-4 rounded-full bg-white
                         transition-transform peer-checked:translate-x-4"></span>
           </span>
-          <span>
-            Summarize chunks with an LLM
-            <span class="text-[color:var(--faint)]">— situates context-poor chunks; leave off for a fully deterministic, free run</span>
-          </span>
+          <span>Summarize chunks with an LLM
+            <span class="text-[color:var(--faint)]">— off = free, deterministic run</span></span>
         </label>
         <input type="hidden" name="use_llm" id="use-llm-field" value="true">
         <p id="upload-feedback" class="mt-2 hidden px-2 text-[12px] font-medium text-amber-300">
           Choose at least one file, or paste a URL — then press Cleave it.</p>
       </form>
 
-      <p class="mt-3 max-w-xl px-2 text-[12px] leading-relaxed text-[color:var(--faint)]">
-        Mix them freely — a PDF, a spreadsheet, a screenshot, a recorded demo and a web page
-        land as one combined job: each is routed on its own merits, then searched together.
-      </p>
-
-      <div class="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-[12px] text-[color:var(--faint)]">
-        {% for tone, label, formats in [
-          ("#4d82ff", "Documents",    "PDF · DOCX · PPTX · MD"),
-          ("#2dd4bf", "Spreadsheets", "CSV · XLSX"),
-          ("#f59e0b", "Images",       "PNG · JPG · scans"),
-          ("#f472b6", "Video",        "MP4 · MOV · MKV"),
-          ("#34d399", "Audio",        "MP3 · M4A · WAV"),
-          ("#38bdf8", "Web",          "URL"),
-          ("#c084fc", "Contract",     "JSON")] %}
-        <span class="flex items-center gap-1.5">
-          <span class="h-1.5 w-1.5 rounded-full" style="background:{{ tone }}"></span>
-          <span class="font-medium text-[color:var(--muted)]">{{ label }}</span>
-          <span>{{ formats }}</span>
-        </span>
-        {% endfor %}
+      <div class="mt-6 max-w-xl">
+        <div class="label px-1">What you can drop in</div>
+        <div class="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {% for tone, label, formats in [
+            ("#4d82ff", "Documents",    "PDF · DOCX · PPTX · MD · TXT"),
+            ("#2dd4bf", "Spreadsheets", "CSV · XLSX"),
+            ("#f59e0b", "Images",       "PNG · JPG · GIF · scans"),
+            ("#f472b6", "Video",        "MP4 · MOV · MKV · WEBM"),
+            ("#34d399", "Audio",        "MP3 · M4A · WAV · FLAC"),
+            ("#38bdf8", "Web pages",    "paste a URL"),
+            ("#c084fc", "Contract",     "JSON")] %}
+          <div class="card-quiet px-3 py-2.5">
+            <div class="flex items-center gap-1.5">
+              <span class="h-1.5 w-1.5 shrink-0 rounded-full" style="background:{{ tone }}"></span>
+              <span class="text-[12.5px] font-semibold text-white">{{ label }}</span>
+            </div>
+            <div class="mt-0.5 text-[11px] text-[color:var(--faint)]">{{ formats }}</div>
+          </div>
+          {% endfor %}
+        </div>
       </div>
     </div>
 
@@ -366,16 +377,93 @@
     if (s) s.value = v;   // samples honor the same toggle
   });
 
+  // ── managed file selection ──────────────────────────────────────────────
+  // The native multi-file input replaces its whole FileList on every pick and
+  // offers no per-file removal. We keep our own array, mirror it into the
+  // input via DataTransfer before each render, and draw a removable row per
+  // file. The input itself stays hidden; a plain button opens the picker.
+  const fileInput   = document.getElementById('file-input');
+  const fileList    = document.getElementById('file-list');
+  const fileActions = document.getElementById('file-actions');
+  const summary     = document.getElementById('file-summary');
+  const urlInput    = document.getElementById('url-input');
+  const clearUrl    = document.getElementById('clear-url');
+  let picked = [];
+
+  const fmtSize = (b) => b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB'
+                       : b >= 1024    ? Math.round(b / 1024) + ' KB' : b + ' B';
+
+  function renderFiles() {
+    const dt = new DataTransfer();
+    picked.forEach(f => dt.items.add(f));
+    fileInput.files = dt.files;
+
+    summary.textContent = picked.length
+      ? `${picked.length} file${picked.length > 1 ? 's' : ''} selected`
+      : 'No files chosen';
+    fileList.classList.toggle('hidden', !picked.length);
+    fileList.classList.toggle('flex', !!picked.length);
+    fileActions.classList.toggle('hidden', picked.length < 2);
+    fileActions.classList.toggle('flex', picked.length >= 2);
+
+    fileList.replaceChildren(...picked.map((f, i) => {
+      const li = document.createElement('li');
+      li.className = 'flex items-center gap-2 rounded-[10px] bg-[color:var(--bg-soft)] px-3 py-1.5';
+      const name = document.createElement('span');
+      name.className = 'min-w-0 flex-1 truncate text-[12.5px] text-[color:var(--text)]';
+      name.textContent = f.name;
+      const size = document.createElement('span');
+      size.className = 'shrink-0 text-[11px] text-[color:var(--faint)]';
+      size.textContent = fmtSize(f.size);
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.title = 'Remove';
+      rm.className = 'grid h-5 w-5 shrink-0 place-items-center rounded-full ' +
+                     'text-[color:var(--faint)] hover:bg-rose-500/15 hover:text-rose-300';
+      rm.innerHTML = '<svg viewBox="0 0 16 16" class="h-2.5 w-2.5" fill="none" ' +
+        'stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+      rm.addEventListener('click', () => { picked.splice(i, 1); renderFiles(); });
+      li.append(name, size, rm);
+      return li;
+    }));
+  }
+
+  document.getElementById('pick-btn').addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', () => {
+    for (const f of fileInput.files) {
+      // picking again ADDS to the selection instead of silently replacing it
+      if (!picked.some(p => p.name === f.name && p.size === f.size)) picked.push(f);
+    }
+    renderFiles();
+    document.getElementById('upload-feedback').classList.add('hidden');
+  });
+
+  document.getElementById('clear-files').addEventListener('click', () => {
+    picked = [];
+    renderFiles();
+  });
+
+  // ── URL box clear ──
+  urlInput.addEventListener('input', () => {
+    clearUrl.style.display = urlInput.value ? 'grid' : 'none';
+  });
+  clearUrl.addEventListener('click', () => {
+    urlInput.value = '';
+    clearUrl.style.display = 'none';
+    urlInput.focus();
+  });
+
   document.getElementById('upload-form').addEventListener('submit', (e) => {
     // Either input satisfies the form: files, a URL, or both in one job.
-    const n = document.getElementById('file-input').files.length;
-    const url = document.getElementById('url-input').value.trim();
+    const n = picked.length;
+    const url = urlInput.value.trim();
     const feedback = document.getElementById('upload-feedback');
     if (!n && !url) {
       // Silence here read as a dead button — say what is missing instead.
       e.preventDefault();
       feedback.classList.remove('hidden');
-      document.getElementById('url-input').focus();
+      urlInput.focus();
       return;
     }
     feedback.classList.add('hidden');
@@ -393,11 +481,7 @@
   window.addEventListener('pageshow', () => {
     document.getElementById('submit-btn').disabled = false;
     document.getElementById('btn-label').textContent = 'Cleave it';
-  });
-
-  // Picking files clears the warning and shows what is queued.
-  document.getElementById('file-input').addEventListener('change', (e) => {
-    document.getElementById('upload-feedback').classList.add('hidden');
+    renderFiles();  // bfcache restores DOM but our array is authoritative
   });
 </script>
 {% endblock %}
