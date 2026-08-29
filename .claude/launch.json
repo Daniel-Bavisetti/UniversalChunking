@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "cleave",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "exec .venv/bin/python -m uvicorn cleave.app:app --host 127.0.0.1 --port ${PORT:-8321}"],
+      "port": 8321,
+      "autoPort": true
+    }
+  ]
+}
