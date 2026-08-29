@@ -240,7 +240,7 @@ def test_contract_rejects_an_unknown_version():
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
         json.dump({"contract": 99, "elements": []}, f)
         path = f.name
-    with pytest.raises(ValueError, match="unsupported contract version"):
+    with pytest.raises(ValueError, match="contract version 99 is not supported"):
         load_contract(path)
 
 
@@ -599,7 +599,8 @@ def test_status_reports_every_subsystem():
 
     checks = system_status(refresh=True)
     keys = [c["key"] for c in checks]
-    assert keys == ["parser", "embeddings", "retrieval", "vision", "llm"]
+    assert keys == ["parser", "embeddings", "retrieval", "vision",
+                "video", "audio", "web", "llm"]
     assert all({"key", "label", "ok", "state", "detail"} <= set(c) for c in checks)
 
 
@@ -655,3 +656,67 @@ def test_health_endpoint_exposes_the_banner_and_checks(monkeypatch):
 
         html = client.get("/status").text
         assert "LLM Enrichment unavailable" in html
+
+
+# ───────────────────────── video unit mapping ─────────────────────────
+
+def _vke_unit(**overrides):
+    from vke.schemas import BoundaryExplanation, Span
+    from vke.schemas import KnowledgeUnit as VkeUnit
+
+    base = dict(
+        id="u_000",
+        video_id="vid",
+        span=Span(start=0.0, end=30.0),
+        title="(no speech)",
+        transcript="",
+        boundary=BoundaryExplanation(ts=0.0, score=0.9, threshold=0.4),
+    )
+    base.update(overrides)
+    return VkeUnit(**base)
+
+
+def test_video_unit_carries_scene_description_and_actions():
+    """A VLM's description and actions must reach the unit content — otherwise
+    enabling the vision provider changes nothing the user can see or search."""
+    from pathlib import Path
+
+    from cleave.ingest_video import _as_cleave_unit
+
+    u = _vke_unit(
+        visual_context="Water is being poured into a vase of flowers.",
+        visual_source="vlm",
+        actions=["pouring water"],
+        objects=["vase"],
+    )
+    unit = _as_cleave_unit(u, Path("clip.mp4"))
+    assert "Water is being poured into a vase" in unit.content
+    assert "pouring water" in unit.content
+    # the richer description leads; raw labels stay as supporting evidence
+    assert unit.content.index("Water is being poured") < unit.content.index("Visible:")
+    assert unit.metadata["actions"] == ["pouring water"]
+
+
+def test_video_unit_states_when_there_is_no_audio_track():
+    from pathlib import Path
+
+    from cleave.ingest_video import _as_cleave_unit
+
+    u = _vke_unit(objects=["vase"])
+    silent = _as_cleave_unit(u, Path("clip.mp4"), has_audio=False)
+    assert "no audio" in silent.content.lower()
+
+    quiet = _as_cleave_unit(u, Path("clip.mp4"), has_audio=True)
+    assert "no speech" in quiet.content.lower()
+    assert "no audio" not in quiet.content.lower()
+
+
+def test_video_unit_with_speech_gets_no_silence_note():
+    from pathlib import Path
+
+    from cleave.ingest_video import _as_cleave_unit
+
+    u = _vke_unit(transcript="Here we water the flowers.", objects=["vase"])
+    unit = _as_cleave_unit(u, Path("clip.mp4"))
+    assert unit.content.startswith("Here we water the flowers.")
+    assert "no speech" not in unit.content.lower()
