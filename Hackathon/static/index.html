@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VKE — Video Knowledge Engine</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#141922; --panel2:#1b2230; --line:#242c3a;
+    --text:#e6ebf5; --dim:#8b96ab; --faint:#5b6577;
+    --a:#6b7688;              /* fixed        */
+    --b:#e0a33a;              /* audio-only   */
+    --c:#4ba3ff;              /* vke          */
+    --sem:#a78bfa; --vis:#4ba3ff; --sil:#34d399; --spk:#e0a33a;
+    --ok:#34d399;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--text);
+    font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1500px;margin:0 auto;padding:14px 18px 28px}
+
+  header{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+  .brand{font-size:16px;font-weight:650;letter-spacing:.2px}
+  .brand span{color:var(--c)}
+  .tag{font-size:11px;color:var(--dim);border:1px solid var(--line);
+       padding:2px 8px;border-radius:99px}
+  .spacer{flex:1}
+  button,select,input{
+    background:var(--panel2);color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:7px 12px;font:inherit;font-size:13px;cursor:pointer;
+  }
+  button:hover{border-color:#3a465c}
+  button:disabled{opacity:.45;cursor:default}
+
+  .grid{display:grid;grid-template-columns:minmax(0,1fr) 384px;gap:14px;
+       align-items:start}
+  .grid>*{min-width:0}
+  @media (max-width:1180px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px}
+  .card h2{
+    margin:0;padding:11px 14px;font-size:11px;font-weight:650;letter-spacing:.09em;
+    text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--line);
+  }
+  .pad{padding:14px}
+
+  video{width:100%;display:block;background:#000;border-radius:12px 12px 0 0;
+        max-height:38vh}
+
+  /* ---- config toggle ---- */
+  .configs{display:flex;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line);
+           flex-wrap:wrap}
+  .cfg{
+    flex:1;min-width:190px;text-align:left;padding:9px 12px;border-radius:9px;
+    border:1px solid var(--line);background:var(--panel2);cursor:pointer;
+    transition:border-color .12s,background .12s;
+  }
+  .cfg:hover{border-color:#3a465c}
+  .cfg .nm{font-weight:600;font-size:13px;display:flex;align-items:center;gap:7px}
+  .cfg .dot{width:9px;height:9px;border-radius:99px;flex:none}
+  .cfg .ct{font-size:11px;color:var(--dim);margin-top:3px}
+  .cfg.on{background:#1e2939;border-color:currentColor}
+  .cfg[data-k=fixed_30s]{color:var(--a)} .cfg[data-k=audio_only]{color:var(--b)}
+  .cfg[data-k=vke_multimodal]{color:var(--c)}
+  .cfg .nm{color:var(--text)} .cfg .ct{color:var(--dim)}
+
+  /* ---- timeline ---- */
+  .tl{padding:12px 14px 6px}
+  .row{display:flex;align-items:center;gap:10px;margin-bottom:7px}
+  .rlab{width:104px;flex:none;font-size:11px;color:var(--dim);text-align:right}
+  .rlab b{display:block;color:var(--text);font-size:12px;font-weight:600}
+  .track{position:relative;flex:1;height:34px;background:var(--panel2);
+         border-radius:7px;overflow:hidden}
+  .row.dim .track{opacity:.78}
+  .blk{
+    position:absolute;top:0;bottom:0;border-right:2px solid var(--bg);
+    cursor:pointer;overflow:hidden;background-size:cover;background-position:center;
+  }
+  .blk:after{content:"";position:absolute;inset:0;background:currentColor;opacity:.5;
+             transition:opacity .12s}
+  .blk:hover:after{opacity:.72}
+  .blk.sel:after{opacity:.85}
+  .blk.sel{outline:2px solid #fff;outline-offset:-2px;z-index:3}
+  .blk .lb{position:absolute;left:5px;right:4px;bottom:3px;font-size:10px;
+           color:#fff;z-index:2;white-space:nowrap;overflow:hidden;
+           text-overflow:ellipsis;text-shadow:0 1px 3px rgba(0,0,0,.9)}
+  .cnt{width:58px;flex:none;font-size:11px;color:var(--dim);text-align:left}
+  .cnt b{color:var(--text);font-size:13px}
+  .play{position:absolute;top:0;bottom:0;width:2px;background:#fff;z-index:5;
+        pointer-events:none;box-shadow:0 0 6px rgba(255,255,255,.8)}
+
+  /* ---- signal strip ---- */
+  .sig{display:flex;align-items:center;gap:10px;margin-top:2px}
+  .sig .rlab{color:var(--dim);font-size:10.5px}
+  .spark{flex:1;height:26px;display:block;min-width:0}
+  .axis{display:flex;justify-content:space-between;font-size:10px;color:var(--faint);
+        margin:2px 0 8px 114px;padding-right:58px}
+
+  /* ---- transcript ---- */
+  .scroll{max-height:290px;overflow-y:auto}
+  .scroll::-webkit-scrollbar{width:8px}
+  .scroll::-webkit-scrollbar-thumb{background:#2b3444;border-radius:4px}
+  .ut{display:flex;gap:10px;padding:5px 14px;cursor:pointer;border-left:2px solid transparent}
+  .ut:hover{background:#182030}
+  .ut.in{border-left-color:var(--c);background:#151d2b}
+  .ut.now{background:#1d2942}
+  .ut .t{color:var(--faint);font-variant-numeric:tabular-nums;font-size:11px;
+         flex:none;padding-top:1px}
+  .ut.now .t{color:var(--c)}
+  .ut .sp{color:var(--spk);font-size:10px;flex:none;padding-top:2px}
+
+  /* ---- unit panel ---- */
+  .kf{width:100%;border-radius:8px;display:block;border:1px solid var(--line)}
+  .ttl{font-size:15px;font-weight:620;margin:11px 0 3px;line-height:1.35}
+  .rng{font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
+  .sec{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+  .sec h3{margin:0 0 7px;font-size:10px;letter-spacing:.09em;text-transform:uppercase;
+          color:var(--dim);font-weight:650}
+  .why{background:var(--panel2);border-radius:9px;padding:11px 12px}
+  .whytop{display:flex;justify-content:space-between;font-size:12px;margin-bottom:9px}
+  .sg{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:8px;
+      align-items:center;margin-bottom:6px;font-size:11px}
+  .sg .nm{color:var(--dim)}
+  .bar{height:6px;background:#0e131c;border-radius:3px;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:3px}
+  .math{text-align:right;font-variant-numeric:tabular-nums;color:var(--dim);
+        font-size:10.5px;white-space:nowrap}
+  .math b{color:var(--text)}
+  .note{font-size:11px;color:var(--faint);margin-top:8px;line-height:1.45}
+  .chips{display:flex;flex-wrap:wrap;gap:5px}
+  .chip{background:var(--panel2);border:1px solid var(--line);border-radius:99px;
+        padding:2px 9px;font-size:11px;color:var(--dim)}
+  .tx{font-size:12.5px;color:#c3ccdb;line-height:1.6;max-height:150px;overflow-y:auto}
+  .nav{display:flex;gap:7px;margin-top:9px}
+  .nav button{flex:1;font-size:11.5px;padding:6px}
+  .empty{padding:34px 14px;text-align:center;color:var(--faint);font-size:13px}
+  #drop.over{outline:2px dashed var(--c);outline-offset:-8px}
+
+  /* ---- right-panel tabs ---- */
+  .tabs{display:flex;border-bottom:1px solid var(--line)}
+  .tab{flex:1;background:none;border:none;border-radius:0;padding:10px 6px;
+       font-size:10.5px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;
+       color:var(--dim);cursor:pointer;border-bottom:2px solid transparent}
+  .tab:hover{color:var(--text);border-color:transparent}
+  .tab.on{color:var(--c);border-bottom-color:var(--c)}
+  .panel{display:none} .panel.on{display:block}
+
+  /* ---- search / ask ---- */
+  .ask{display:flex;gap:6px;margin-bottom:8px}
+  .ask input{flex:1;min-width:0;font-size:12.5px;cursor:text}
+  .ask input:focus{outline:none;border-color:var(--c)}
+  .hit{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+       padding:9px 11px;margin-bottom:7px;cursor:pointer}
+  .hit:hover{border-color:var(--c)}
+  .hitTop{display:flex;justify-content:space-between;font-size:11px;
+          color:var(--c);font-variant-numeric:tabular-nums;margin-bottom:4px}
+  .hitTop b{color:var(--dim);font-weight:400}
+  .hitTxt{font-size:11.5px;color:#c3ccdb;line-height:1.5}
+  .hitWhy{font-size:10px;color:var(--faint);margin-top:5px}
+  .answer{background:#152030;border:1px solid #23405e;border-radius:9px;
+          padding:11px 12px;font-size:12.5px;line-height:1.6;margin-bottom:10px}
+  .answer .src{font-size:10px;color:var(--faint);text-transform:uppercase;
+               letter-spacing:.07em;margin-bottom:6px}
+
+  /* ---- graph ---- */
+  #gsvg{width:100%;height:330px;background:var(--panel2);border-radius:9px;display:block}
+  .gl{stroke:#2f3a4d;stroke-width:1}
+  .gl.RELATED_TO{stroke:#7a5cc4;stroke-dasharray:3 3}
+  .gl.PRECEDES{stroke:#4ba3ff;stroke-width:1.6}
+  .gn{cursor:pointer} .gn text{font-size:8px;fill:var(--dim);pointer-events:none}
+  .legend{display:flex;flex-wrap:wrap;gap:9px;margin-top:9px;font-size:10px;
+          color:var(--dim)}
+  .legend i{width:8px;height:8px;border-radius:99px;display:inline-block;
+            margin-right:4px;vertical-align:middle}
+
+  /* ---- diagnostics ---- */
+  .diag{width:100%;font-size:11.5px;border-collapse:collapse}
+  .diag td{padding:5px 4px;border-bottom:1px solid var(--line)}
+  .diag td:last-child{text-align:right;font-variant-numeric:tabular-nums;
+                      color:var(--dim)}
+  .diag .h td{color:var(--dim);font-size:10px;text-transform:uppercase;
+              letter-spacing:.07em;padding-top:13px;border-bottom:none}
+</style>
+</head>
+<body>
+<div class="wrap" id="drop">
+
+  <header>
+    <div class="brand">VKE <span>·</span> Video Knowledge Engine</div>
+    <div class="tag" id="vidtag">no video</div>
+    <div class="spacer"></div>
+    <select id="picker" title="Choose video"></select>
+    <button id="up">Upload</button>
+    <select id="expfmt" title="Export format">
+      <option value="vke|json">Knowledge Units (JSON)</option>
+      <option value="vke|jsonl">Knowledge Units (JSONL)</option>
+      <option value="universal|json">Universal Units (JSON)</option>
+      <option value="universal|jsonl">Universal Units (JSONL)</option>
+    </select>
+    <button id="exp">Export</button>
+    <input type="file" id="file" accept="video/*" hidden />
+  </header>
+
+  <div class="grid">
+    <div>
+      <div class="card" style="margin-bottom:14px">
+        <video id="v" controls preload="metadata"></video>
+        <div class="configs" id="cfgs"></div>
+        <div class="tl" id="tl"></div>
+      </div>
+
+      <div class="card">
+        <h2>Transcript</h2>
+        <div class="scroll" id="tr"><div class="empty">No transcript yet.</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="tabs">
+        <button class="tab on" data-p="unit">Unit</button>
+        <button class="tab" data-p="search">Search</button>
+        <button class="tab" data-p="graph">Graph</button>
+        <button class="tab" data-p="diag">Diagnostics</button>
+      </div>
+
+      <div class="panel on" id="p-unit">
+        <div class="pad" id="unit">
+          <div class="empty">Click any block on the timeline.</div>
+        </div>
+      </div>
+
+      <div class="panel" id="p-search">
+        <div class="pad">
+          <div class="ask">
+            <input id="q" placeholder="Search moments, or ask a question…" />
+            <button id="goSearch">Find</button>
+          </div>
+          <button id="goAsk" style="width:100%;font-size:11.5px;margin-bottom:10px">
+            Ask as a question
+          </button>
+          <div id="hits">
+            <div class="empty">Try "authentication token", or ask
+              "what happens after the migration?"</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="p-graph">
+        <div class="pad">
+          <svg id="gsvg"></svg>
+          <div class="legend">
+            <span><i style="background:#4ba3ff"></i>Event</span>
+            <span><i style="background:#a78bfa"></i>Entity</span>
+            <span><i style="background:#34d399"></i>Scene</span>
+            <span><i style="background:#e0a33a"></i>Speaker</span>
+            <span><i style="background:#8b96ab"></i>Video</span>
+          </div>
+          <div class="note" id="gstats"></div>
+        </div>
+      </div>
+
+      <div class="panel" id="p-diag">
+        <div class="pad"><table class="diag" id="diag"></table></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const vid = $("#v");
+const S = { id:null, cfg:"vke_multimodal", units:{}, curves:null, sel:null,
+            meta:null, configs:[] };
+const COL = { fixed_30s:"var(--a)", audio_only:"var(--b)", vke_multimodal:"var(--c)" };
+const SIGCOL = { semantic:"var(--sem)", visual:"var(--vis)",
+                 silence:"var(--sil)", speaker:"var(--spk)" };
+
+const mmss = s => {
+  s = Math.max(0, s||0);
+  return `${String(Math.floor(s/60)).padStart(2,"0")}:${String(Math.floor(s%60)).padStart(2,"0")}`;
+};
+const esc = t => (t||"").replace(/[&<>"]/g, c =>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+async function getJSON(url){
+  try {
+    const r = await fetch(url);
+    return r.ok ? await r.json() : null;
+  } catch { return null; }
+}
+
+// ---------------------------------------------------------------- load
+async function boot(){
+  S.configs = (await getJSON("/api/configs")) || [];
+  const vids = (await getJSON("/api/videos")) || [];
+  const p = $("#picker");
+  p.innerHTML = vids.map(v=>`<option value="${v.video_id}">${esc(v.filename)}</option>`).join("");
+  p.onchange = () => load(p.value);
+  if (vids.length) { p.value = vids[vids.length-1].video_id; load(p.value); }
+}
+
+async function load(id){
+  S.id = id; S.sel = null;
+  S.meta   = await getJSON(`/api/videos/${id}`);
+  S.units  = (await getJSON(`/api/videos/${id}/units`)) || {};
+  S.curves = await getJSON(`/api/videos/${id}/curves`);
+  vid.src = `/api/videos/${id}/stream`;
+  $("#vidtag").textContent = S.meta
+    ? `${S.meta.filename} · ${mmss(S.meta.duration)}` : id;
+  drawConfigs(); drawTimeline(); drawTranscript();
+  const u = (S.units[S.cfg]||[])[0]; if (u) select(u);
+}
+
+// ---------------------------------------------------------------- configs
+function drawConfigs(){
+  $("#cfgs").innerHTML = S.configs.map(c=>{
+    const n = (S.units[c.key]||[]).length;
+    const w = c.fixed_window
+      ? `every ${c.fixed_window}s · no signals`
+      : Object.entries(c.weights).filter(([,v])=>v>0)
+          .map(([k,v])=>`${k} ${v.toFixed(2)}`).join(" · ");
+    return `<button class="cfg ${c.key===S.cfg?"on":""}" data-k="${c.key}"
+        title="${esc(c.description)}">
+      <div class="nm"><i class="dot" style="background:${COL[c.key]}"></i>${esc(c.label)}</div>
+      <div class="ct">${n} units · ${esc(w)}</div></button>`;
+  }).join("");
+  document.querySelectorAll(".cfg").forEach(b=>b.onclick=()=>{
+    S.cfg = b.dataset.k; S.sel = null;
+    drawConfigs(); drawTimeline(); drawTranscript();
+    const u=(S.units[S.cfg]||[])[0]; if(u) select(u);
+  });
+}
+
+// ---------------------------------------------------------------- timeline
+function sparkline(vals, colour){
+  if(!vals || !vals.length) return "";
+  const W=1000,H=26,mx=Math.max(...vals,0.001);
+  const pts = vals.map((v,i)=>`${(i/(vals.length-1)*W).toFixed(1)},${(H-(v/mx)*H).toFixed(1)}`);
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    <polyline points="${pts.join(" ")}" fill="none" stroke="${colour}"
+      stroke-width="1.9" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
+function drawTimeline(){
+  const D = S.meta?.duration || 1;
+  let html = "";
+
+  for (const c of S.configs){
+    const units = S.units[c.key] || [];
+    const active = c.key === S.cfg;
+    const blocks = units.map(u=>{
+      const l = u.span.start/D*100, w = (u.span.end-u.span.start)/D*100;
+      const thumb = active
+        ? `background-image:url(/api/videos/${S.id}/keyframe/${u.id}.jpg)` : "";
+      return `<div class="blk" data-id="${u.id}" data-cfg="${c.key}"
+        style="left:${l}%;width:${w}%;color:${COL[c.key]};${thumb}"
+        title="${esc(u.title)}">${active?`<span class="lb">${esc(u.title)}</span>`:""}</div>`;
+    }).join("");
+    html += `<div class="row ${active?"":"dim"}">
+      <div class="rlab"><b>${esc(c.label)}</b>${c.fixed_window?"fixed clock":"signal-driven"}</div>
+      <div class="track" data-cfg="${c.key}">${blocks}
+        <div class="play" data-play="${c.key}" style="left:0"></div></div>
+      <div class="cnt"><b>${units.length}</b> units</div></div>`;
+  }
+
+  if (S.curves?.signals){
+    html += `<div style="height:6px"></div>`;
+    for (const [n,vals] of Object.entries(S.curves.signals)){
+      const flat = !vals.some(v=>v>0.001);
+      html += `<div class="sig"><div class="rlab">${n}</div>
+        ${sparkline(vals, SIGCOL[n]||"#888")}
+        <div class="cnt" style="font-size:10px">${flat?"none":""}</div></div>`;
+    }
+  }
+  html += `<div class="axis"><span>0:00</span><span>${mmss(D*0.25)}</span>
+    <span>${mmss(D*0.5)}</span><span>${mmss(D*0.75)}</span><span>${mmss(D)}</span></div>`;
+
+  $("#tl").innerHTML = html;
+  document.querySelectorAll(".blk").forEach(b=>b.onclick=()=>{
+    const u = (S.units[b.dataset.cfg]||[]).find(x=>x.id===b.dataset.id);
+    if(!u) return;
+    if (b.dataset.cfg !== S.cfg){
+      S.cfg = b.dataset.cfg; drawConfigs(); drawTimeline(); drawTranscript();
+    }
+    select(u, true);
+  });
+  markSelected();
+}
+
+function markSelected(){
+  document.querySelectorAll(".blk").forEach(b=>
+    b.classList.toggle("sel", !!S.sel && b.dataset.id===S.sel.id && b.dataset.cfg===S.cfg));
+}
+
+// ---------------------------------------------------------------- transcript
+function drawTranscript(){
+  const uts = S.curves?.utterances || [];
+  if(!uts.length){ $("#tr").innerHTML = `<div class="empty">No speech detected.</div>`; return; }
+  const multi = new Set(uts.map(u=>u.speaker).filter(Boolean)).size > 1;
+  $("#tr").innerHTML = uts.map((u,i)=>
+    `<div class="ut" data-i="${i}" data-s="${u.start}">
+       <span class="t">${mmss(u.start)}</span>
+       ${multi&&u.speaker?`<span class="sp">${esc(u.speaker.replace("speaker_","S"))}</span>`:""}
+       <span>${esc(u.text)}</span></div>`).join("");
+  document.querySelectorAll(".ut").forEach(el=>el.onclick=()=>seek(+el.dataset.s));
+}
+
+// ---------------------------------------------------------------- unit panel
+function qualityBlock(u){
+  if (u.quality == null) return "";
+  const parts = Object.entries(u.quality_parts||{}).filter(([k])=>k!=="overall");
+  const pct = Math.round(u.quality*100);
+  const col = u.quality>=0.7?"var(--ok)":u.quality>=0.5?"var(--b)":"#e06a5a";
+  const flags = (u.flags||[]).map(f=>
+    `<span class="chip" style="color:#e0a33a;border-color:#4a3a1a">${esc(f)}</span>`).join("");
+  return `<div class="sec"><h3>Quality</h3>
+    <div class="sg" style="margin-bottom:9px">
+      <span class="nm" style="color:var(--text);font-weight:600">overall</span>
+      <span class="bar" style="height:8px"><i style="width:${pct}%;background:${col}"></i></span>
+      <span class="math"><b>${u.quality.toFixed(2)}</b></span></div>
+    ${parts.map(([k,v])=>`<div class="sg">
+      <span class="nm" style="font-size:10px">${esc(k.replace(/_/g," "))}</span>
+      <span class="bar"><i style="width:${Math.round(v*100)}%;background:#48566e"></i></span>
+      <span class="math">${v.toFixed(2)}</span></div>`).join("")}
+    ${flags?`<div class="chips" style="margin-top:8px">${flags}</div>`:""}</div>`;
+}
+
+function listBlock(title, items){
+  if(!items || !items.length) return "";
+  return `<div class="sec"><h3>${title}</h3><div class="chips">
+    ${items.map(i=>`<span class="chip">${esc(i)}</span>`).join("")}</div></div>`;
+}
+
+// Everything a model inferred, labelled with WHICH model inferred it and how
+// confident it was. A measurement must never be able to look like a detection,
+// so the producer travels with the value rather than sitting in a footnote.
+function evidenceBlock(u, title, kind, reasonKey){
+  const obs = (u.observations||[]).filter(o=>o.kind===kind);
+  const why = ((u.provenance||{}).enrichment||{})[reasonKey] || "";
+
+  if(!obs.length){
+    // An empty list is ambiguous - "looked and saw nothing" reads exactly like
+    // "no model ever ran". Say which one it was.
+    if(!why) return "";
+    const ran = !/^(not_requested|unavailable)/.test(why);
+    // The counts in `why` are VIDEO-WIDE (one detection pass serves all three
+    // configs). Printing them alone under an empty block would read as "12
+    // things were found here", which is the opposite of the truth.
+    const line = ran
+      ? `The model ran, but found none in this unit.`
+      : esc(why);
+    const detail = ran
+      ? `<div class="note" style="color:var(--dim);opacity:.7">across the whole video — ${esc(why)}</div>`
+      : "";
+    return `<div class="sec"><h3>${title}</h3>
+      <div class="note" style="color:var(--dim)">${line}</div>${detail}</div>`;
+  }
+
+  const src = [...new Set(obs.map(o=>o.source))].join(", ");
+  const model = [...new Set(obs.map(o=>o.model).filter(Boolean))].join(", ");
+  const tag = `<span class="chip" style="margin-left:6px">${esc(src)}${
+    model?" · "+esc(model):""}</span>`;
+
+  return `<div class="sec"><h3>${title}${tag}</h3><div class="chips">
+    ${obs.map(o=>`<span class="chip" title="${esc(o.source)} · ${esc(o.model)} · at ${
+      o.ts.toFixed(1)}s">${esc(o.value)}
+      <b style="color:var(--dim);font-weight:400">${
+        o.confidence==null ? "—" : o.confidence.toFixed(2)}</b></span>`).join("")}
+    </div>
+    <div class="note" style="color:var(--dim)">${esc(why)}</div></div>`;
+}
+
+function select(u, doSeek){
+  S.sel = u; markSelected();
+  if (doSeek) seek(u.span.start);
+
+  const b = u.boundary || {};
+  const sigs = (b.signals||[]).filter(s=>s.weight>0);
+  const rows = sigs.length ? sigs.map(s=>`<div class="sg">
+      <span class="nm">${esc(s.name)}</span>
+      <span class="bar"><i style="width:${Math.round(s.normalized*100)}%;
+        background:${SIGCOL[s.name]||"#888"}"></i></span>
+      <span class="math">${s.normalized.toFixed(2)} × ${s.weight.toFixed(2)} =
+        <b>${s.contribution.toFixed(3)}</b></span></div>`).join("")
+    : `<div class="note">No signal contributed — this cut came from a fixed clock,
+        not from anything measured in the video.</div>`;
+
+  const snap = b.snapped_from!=null
+    ? `<div class="note">Snapped ${b.snapped_from.toFixed(1)}s → ${b.ts.toFixed(1)}s
+       to land on an utterance edge, so the chunk never starts mid-sentence.</div>` : "";
+
+  // Tier 1 (measurement) vs tier 4 (a model's description) must be readable from
+  // the heading alone. The body of the heuristic version says things like "some
+  // motion", which is a pixel-difference reading and not a claim about what
+  // anyone is doing - close enough to action language to mislead if unlabelled.
+  const measuredTitle = un => un.visual_source === "vlm"
+    ? "Visual description" : "Measured visual signals";
+
+  const vsrc = u.visual_source && u.visual_source!=="heuristic"
+    ? `<span class="chip" style="margin-left:6px">${esc(u.visual_source)}</span>` : "";
+
+  $("#unit").innerHTML = `
+    <img class="kf" src="/api/videos/${S.id}/keyframe/${u.id}.jpg"
+         onerror="this.style.display='none'" alt="">
+    <div class="ttl">${esc(u.title)}</div>
+    <div class="rng">${mmss(u.span.start)} – ${mmss(u.span.end)} ·
+        ${u.span.duration.toFixed(1)}s · <code>${esc(u.id)}</code></div>
+
+    <div class="sec"><h3>Why this boundary</h3>
+      <div class="why">
+        <div class="whytop"><span>score <b>${(b.score||0).toFixed(3)}</b></span>
+          <span style="color:var(--dim)">threshold ${(b.threshold||0).toFixed(3)}</span></div>
+        ${rows}${snap}
+      </div></div>
+
+    ${qualityBlock(u)}
+
+    ${u.summary?`<div class="sec"><h3>Summary</h3>
+      <div class="note" style="color:#c3ccdb;font-size:12px">${esc(u.summary)}</div></div>`:""}
+
+    ${(u.prev_summary||u.next_summary||u.carried_entities?.length)?`<div class="sec">
+      <h3>Context to read this alone</h3>
+      ${u.carried_entities?.length?`<div class="chips" style="margin-bottom:8px">
+        ${u.carried_entities.map(e=>`<span class="chip"
+          title="introduced earlier">${esc(e)}</span>`).join("")}</div>`:""}
+      ${u.prev_summary?`<div class="note"><b>before:</b> ${esc(u.prev_summary)}</div>`:""}
+      ${u.next_summary?`<div class="note"><b>after:</b> ${esc(u.next_summary)}</div>`:""}
+    </div>`:""}
+
+    ${listBlock("Key terms", u.entities)}
+    ${evidenceBlock(u, "On-screen text", "text", "ocr")}
+    ${evidenceBlock(u, "Objects", "object", "objects")}
+    ${evidenceBlock(u, "Actions", "action", "actions")}
+    ${listBlock("Speakers", u.speakers)}
+
+    <div class="sec"><h3>${measuredTitle(u)} ${vsrc}</h3>
+      <div class="note" style="color:var(--dim)">${esc(u.visual_context)}</div></div>
+
+    <div class="sec"><h3>Transcript</h3>
+      <div class="tx">${esc(u.transcript)||"<i>no speech</i>"}</div></div>
+
+    <div class="nav">
+      <button ${u.prev_unit_id?"":"disabled"} onclick="jump('${u.prev_unit_id}')">previous</button>
+      <button ${u.next_unit_id?"":"disabled"} onclick="jump('${u.next_unit_id}')">next</button>
+    </div>`;
+}
+
+window.jump = id => {
+  const u = (S.units[S.cfg]||[]).find(x=>x.id===id);
+  if (u) select(u, true);
+};
+
+function seek(t){ vid.currentTime = Math.max(0, t + 0.05); vid.play().catch(()=>{}); }
+
+// ---------------------------------------------------------------- playhead
+vid.addEventListener("timeupdate", ()=>{
+  const t = vid.currentTime, D = S.meta?.duration || 1;
+  document.querySelectorAll(".play").forEach(p=>p.style.left = (t/D*100)+"%");
+
+  const uts = S.curves?.utterances || [];
+  let cur = -1;
+  for (let i=0;i<uts.length;i++) if (uts[i].start<=t && t<uts[i].end) { cur=i; break; }
+  document.querySelectorAll(".ut").forEach(el=>{
+    const i = +el.dataset.i, s = uts[i];
+    el.classList.toggle("now", i===cur);
+    el.classList.toggle("in", !!S.sel && s.start < S.sel.span.end && s.end > S.sel.span.start);
+  });
+  const now = document.querySelector(".ut.now");
+  if (now && !now.dataset.scrolled){
+    document.querySelectorAll(".ut").forEach(e=>delete e.dataset.scrolled);
+    now.dataset.scrolled = "1";
+    now.scrollIntoView({block:"nearest", behavior:"smooth"});
+  }
+});
+
+// ---------------------------------------------------------------- tabs
+document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
+  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on", x===t));
+  document.querySelectorAll(".panel").forEach(p=>
+    p.classList.toggle("on", p.id === "p-"+t.dataset.p));
+  if (t.dataset.p === "graph") drawGraph();
+  if (t.dataset.p === "diag") drawDiag();
+});
+
+// ---------------------------------------------------------------- search / ask
+async function post(url, body){
+  try {
+    const r = await fetch(url, {method:"POST",
+      headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
+    return r.ok ? await r.json() : null;
+  } catch { return null; }
+}
+
+async function runSearch(){
+  const q = $("#q").value.trim(); if(!q || !S.id) return;
+  $("#hits").innerHTML = `<div class="empty">searching…</div>`;
+  const r = await post(`/api/videos/${S.id}/search`, {query:q, config:S.cfg});
+  renderHits(r?.results, null);
+}
+
+async function runAsk(){
+  const q = $("#q").value.trim(); if(!q || !S.id) return;
+  $("#hits").innerHTML = `<div class="empty">looking…</div>`;
+  const r = await post(`/api/videos/${S.id}/ask`, {question:q, config:S.cfg});
+  renderHits(r?.evidence, r);
+}
+
+function renderHits(hits, answer){
+  if(!hits || !hits.length){
+    $("#hits").innerHTML = `<div class="empty">No matching moments.</div>`; return;
+  }
+  const head = answer ? `<div class="answer">
+      <div class="src">answer · ${esc(answer.answer_source)}</div>
+      ${esc(answer.answer)}</div>` : "";
+  $("#hits").innerHTML = head + hits.map(h=>`
+    <div class="hit" data-s="${h.span.start}" data-u="${h.unit_id}">
+      <div class="hitTop"><span>${mmss(h.span.start)} – ${mmss(h.span.end)}</span>
+        <b>score ${h.score.toFixed(2)}</b></div>
+      <div class="hitTxt">${esc(h.snippet)}</div>
+      <div class="hitWhy">${esc(h.reason)}</div>
+    </div>`).join("");
+  document.querySelectorAll(".hit").forEach(el=>el.onclick=()=>{
+    seek(+el.dataset.s);
+    const u = (S.units[S.cfg]||[]).find(x=>x.id===el.dataset.u);
+    if (u) select(u);
+  });
+}
+$("#goSearch").onclick = runSearch;
+$("#goAsk").onclick = runAsk;
+$("#q").addEventListener("keydown", e=>{ if(e.key==="Enter") runSearch(); });
+
+// ---------------------------------------------------------------- graph
+const GCOL = {Event:"#4ba3ff", Entity:"#a78bfa", Scene:"#34d399",
+              Speaker:"#e0a33a", Video:"#8b96ab"};
+
+async function drawGraph(){
+  if (!S.id) return;
+  const g = await getJSON(`/api/videos/${S.id}/graph`);
+  const svg = $("#gsvg");
+  if (!g || !g.nodes){ svg.innerHTML = ""; return; }
+  const W = svg.clientWidth || 356, H = 330;
+
+  // Deterministic layout: events along the middle in temporal order, entities on
+  // an outer ring, everything else inside. A force simulation looks livelier but
+  // jitters between renders, and a graph you cannot point at twice is not evidence.
+  const pos = {};
+  const events = g.nodes.filter(n=>n.type==="Event")
+                        .sort((a,b)=>(a.start||0)-(b.start||0));
+  events.forEach((n,i)=>{
+    pos[n.id] = {x: 44 + (W-88)*(i/Math.max(events.length-1,1)), y: H*0.5};
+  });
+  const entities = g.nodes.filter(n=>n.type==="Entity");
+  entities.forEach((n,i)=>{
+    const a = (i/Math.max(entities.length,1))*Math.PI*2;
+    pos[n.id] = {x: W/2 + Math.cos(a)*(W*0.42), y: H/2 + Math.sin(a)*(H*0.40)};
+  });
+  const rest = g.nodes.filter(n=>!(n.type==="Event"||n.type==="Entity"));
+  rest.forEach((n,i)=>{
+    const a = (i/Math.max(rest.length,1))*Math.PI*2 + 0.4;
+    pos[n.id] = {x: W/2 + Math.cos(a)*(W*0.17), y: H/2 + Math.sin(a)*(H*0.17)};
+  });
+
+  const lines = g.edges.filter(e=>pos[e.source]&&pos[e.target]).map(e=>
+    `<line class="gl ${e.type}" x1="${pos[e.source].x.toFixed(1)}"
+       y1="${pos[e.source].y.toFixed(1)}" x2="${pos[e.target].x.toFixed(1)}"
+       y2="${pos[e.target].y.toFixed(1)}"/>`).join("");
+
+  const dots = g.nodes.filter(n=>pos[n.id]).map(n=>{
+    const r = n.type==="Event"?7:n.type==="Video"?9:4;
+    const lab = (n.type==="Entity"||n.type==="Event") ? n.label.slice(0,15) : "";
+    return `<g class="gn" data-id="${n.id}">
+      <circle cx="${pos[n.id].x.toFixed(1)}" cy="${pos[n.id].y.toFixed(1)}"
+        r="${r}" fill="${GCOL[n.type]||"#666"}"/>
+      <text x="${pos[n.id].x.toFixed(1)}" y="${(pos[n.id].y-r-3).toFixed(1)}"
+        text-anchor="middle">${esc(lab)}</text></g>`;
+  }).join("");
+
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = lines + dots;
+  $("#gstats").textContent =
+    `${g.stats.node_count} nodes, ${g.stats.edge_count} edges · ` +
+    Object.entries(g.stats.edges_by_type).map(([k,v])=>`${k} ${v}`).join(" · ");
+
+  svg.querySelectorAll(".gn").forEach(el=>el.onclick=()=>{
+    const id = el.dataset.id;
+    if (!id.startsWith("event:")) return;
+    const u = (S.units[S.cfg]||[]).find(x=>x.id===id.slice(6));
+    if (u) select(u, true);
+  });
+}
+
+// ---------------------------------------------------------------- diagnostics
+async function drawDiag(){
+  if (!S.id) return;
+  const t = await getJSON(`/api/videos/${S.id}/trace`);
+  if (!t){ $("#diag").innerHTML = ""; return; }
+  const head = l => `<tr class="h"><td colspan="2">${l}</td></tr>`;
+  const rows = t.stages.map(s=>
+    `<tr><td>${esc(s.stage)}</td><td>${s.seconds.toFixed(2)}s</td></tr>`).join("");
+  const provs = Object.entries(t.providers||{}).map(([k,v])=>
+    `<tr><td>${esc(k)}</td><td>${esc(String(v))}</td></tr>`).join("");
+  const usage = Object.entries(t.usage||{}).map(([k,v])=>
+    `<tr><td>${esc(k.replace(/_/g," "))}</td><td>${v}</td></tr>`).join("");
+  $("#diag").innerHTML =
+    head("stage timings") + rows +
+    `<tr><td><b>total</b></td><td><b>${t.total_seconds}s</b></td></tr>` +
+    head("providers") + provs +
+    head("model usage") + usage;
+}
+
+// ---------------------------------------------------------------- upload
+$("#up").onclick = ()=> $("#file").click();
+$("#file").onchange = e => e.target.files[0] && upload(e.target.files[0]);
+
+const drop = $("#drop");
+["dragenter","dragover"].forEach(k=>drop.addEventListener(k,e=>{
+  e.preventDefault(); drop.classList.add("over");}));
+["dragleave","drop"].forEach(k=>drop.addEventListener(k,e=>{
+  e.preventDefault(); drop.classList.remove("over");}));
+drop.addEventListener("drop", e=>{
+  const f = e.dataTransfer.files[0]; if (f) upload(f);
+});
+
+async function upload(file){
+  const fd = new FormData(); fd.append("file", file);
+  $("#vidtag").textContent = "uploading…";
+  const res = await fetch("/api/videos", {method:"POST", body:fd});
+  if (!res.ok){ $("#vidtag").textContent = "upload failed"; return; }
+  const {job_id, video_id} = await res.json();
+  const poll = setInterval(async ()=>{
+    const j = await getJSON(`/api/jobs/${job_id}`);
+    if (!j) return;
+    $("#vidtag").textContent = `${j.percent}% · ${j.message}`;
+    if (j.status === "done"){
+      clearInterval(poll);
+      const p = $("#picker");
+      if (![...p.options].some(o=>o.value===video_id))
+        p.add(new Option(file.name, video_id));
+      p.value = video_id; load(video_id);
+    }
+    if (j.status === "error"){
+      clearInterval(poll);
+      $("#vidtag").textContent = "failed: " + (j.error||"unknown");
+    }
+  }, 700);
+}
+
+$("#exp").onclick = ()=>{
+  if (!S.id) return;
+  const [schema, fmt] = $("#expfmt").value.split("|");
+  window.location = `/api/videos/${S.id}/export?config=${S.cfg}&schema=${schema}&fmt=${fmt}`;
+};
+
+boot();
+</script>
+</body>
+</html>

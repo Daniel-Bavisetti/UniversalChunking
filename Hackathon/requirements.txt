@@ -1,0 +1,39 @@
+# VKE - Video Knowledge Engine
+# Verified on Python 3.13.14, Windows. No torch, no GPU, no API keys required.
+
+# --- API + schema ---
+fastapi>=0.115
+uvicorn>=0.30
+pydantic>=2.9
+pydantic-settings>=2.4
+python-multipart>=0.0.9      # file upload
+
+# --- video ---
+numpy>=2.0
+opencv-python>=4.10          # frame decode, histograms, keyframes
+scenedetect>=0.7             # content-aware scene cuts (requires opencv-python)
+
+# --- speech ---
+# Bundles PyAV, so it decodes the mp4 audio track directly: no system ffmpeg
+# needed on the critical path. CTranslate2 backend, so no torch either.
+faster-whisper>=1.1
+
+# --- semantic enrichment (Pass 2; never affects chunk boundaries) ---
+# Object detection needs NO new package: onnxruntime and huggingface-hub are
+# already hard dependencies of faster-whisper above. Both are pinned here only
+# so the dependency is visible rather than accidental. Weights (yolov10n, 9MB)
+# are fetched once from the HF hub and cached; pre-stage them with
+#   python -c "from vke.detect import warmup; warmup()"
+onnxruntime>=1.14            # CPU only, ~120ms/frame; the GPU is never used
+huggingface-hub>=0.21        # model download + cache
+
+# OCR is OPTIONAL. Without it the pipeline runs unchanged and every unit records
+# provenance "unavailable: rapidocr not installed" rather than a silent gap.
+rapidocr>=3.9                # bundles PP-OCR ONNX weights, so it works offline
+
+# --- optional ---
+imageio-ffmpeg>=0.5          # only used by scripts/make_fixture.py to mux audio
+python-dotenv>=1.0           # loads .env for optional provider config
+
+# --- dev ---
+pytest>=8.0

@@ -1,24 +1,24 @@
 {
  "by_model": [
   {
-   "model": "gemini-2.5-flash",
-   "calls": 4,
-   "in_tokens": 33537,
-   "out_tokens": 4903,
+   "model": "gemini-3.6-flash",
+   "calls": 29,
+   "in_tokens": 70380,
+   "out_tokens": 6908,
    "cached_tokens": 0,
-   "cost_usd": 0.022318,
+   "cost_usd": 0.078689,
    "failures": 0,
    "estimated": false,
    "local": false,
    "cache_hit_pct": 0.0
   },
   {
-   "model": "gemini-3.6-flash",
-   "calls": 5,
-   "in_tokens": 16751,
-   "out_tokens": 1271,
+   "model": "gemini-2.5-flash",
+   "calls": 4,
+   "in_tokens": 33537,
+   "out_tokens": 4903,
    "cached_tokens": 0,
-   "cost_usd": 0.017329,
+   "cost_usd": 0.022318,
    "failures": 0,
    "estimated": false,
    "local": false,
@@ -38,13 +38,13 @@
   }
  ],
  "totals": {
-  "calls": 13,
-  "in_tokens": 58488,
-  "out_tokens": 9396,
+  "calls": 37,
+  "in_tokens": 112117,
+  "out_tokens": 15033,
   "cached_tokens": 0,
-  "cost_usd": 0.039647,
+  "cost_usd": 0.101007,
   "local_calls": 4,
-  "paid_calls": 9
+  "paid_calls": 33
  },
- "last_job": "325e22e7f3"
+ "last_job": "d00d129b4b"
 }

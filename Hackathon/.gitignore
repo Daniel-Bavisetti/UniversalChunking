@@ -1,0 +1,28 @@
+# VKE - generated/local artifacts, never committed
+
+# Per-video processed output (regenerate with scripts/process.py)
+data/store/
+data/uploads/
+data/_fixture_build/
+data/_frames/
+data/_spike/
+data/_extract_*.json
+data/eval.jsonl
+
+# Keep the fixture video + its ground truth (small, deterministic, needed by CI/tests)
+!data/fixture.mp4
+!data/fixture_ground_truth.json
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secrets - never commit real credentials
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db

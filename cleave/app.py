@@ -135,6 +135,7 @@ def _highlight_scene(text: str) -> "Markup":
 
 
 templates.env.filters["highlight_scene"] = _highlight_scene
+templates.env.filters["ts"] = lambda t: time.strftime("%d %b %Y, %H:%M", time.localtime(t))
 
 
 @dataclass(slots=True)
@@ -727,7 +728,7 @@ def index(request: Request):
     jobs = sorted(JOBS.values(), key=lambda j: j.created, reverse=True)[:10]
     checks = system_status()
     return templates.TemplateResponse(request, "index.html", {
-        "jobs": jobs, "scorecard": scorecard,
+        "jobs": jobs, "total_jobs": len(JOBS), "scorecard": scorecard,
         "usage": read_cumulative(), "providers": describe_providers(),
         "checks": checks, "banner": enrichment_banner(checks),
         "samples": SAMPLES,
@@ -886,6 +887,106 @@ def _artifact(job_id: str, name: str) -> JSONResponse:
 #: session would otherwise hold every job's matrix in memory for good.
 _QUERY_CACHE: OrderedDict[str, tuple] = OrderedDict()
 _QUERY_CACHE_MAX = 8
+
+#: Every stored job's units + embeddings, keyed by job id. The chunk store is
+#: the data/jobs tree itself — this is just the searchable in-memory view of
+#: it, invalidated per job by units.json mtime so new jobs join on the next
+#: search without re-embedding the old ones.
+_CORPUS: dict[str, tuple[float, list[dict], object]] = {}
+
+
+def _corpus() -> list[tuple[str, list[dict], object]]:
+    """(job_id, units, vecs) for every job with artifacts on disk."""
+    from .semantic import embed  # noqa: PLC0415
+
+    entries: list[tuple[str, list[dict], object]] = []
+    live: set[str] = set()
+    for path in DATA.glob("*/units.json"):
+        job_id = path.parent.name
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        cached = _CORPUS.get(job_id)
+        if cached is None or cached[0] != mtime or (cached[2] is None and cached[1]):
+            # the vecs-is-None retry covers the embedding model arriving after
+            # a job was first cached without vectors
+            try:
+                units = json.loads(path.read_text())
+            except (OSError, ValueError):
+                continue
+            vecs = (cached[2] if cached and cached[0] == mtime and cached[2] is not None
+                    else embed([u.get("embed_text") or u.get("content") or ""
+                                for u in units]) if units else None)
+            _CORPUS[job_id] = (mtime, units, vecs)
+        live.add(job_id)
+        _, units, vecs = _CORPUS[job_id]
+        entries.append((job_id, units, vecs))
+    for gone in set(_CORPUS) - live:
+        del _CORPUS[gone]
+    return entries
+
+
+@app.post("/search", response_class=HTMLResponse)
+async def search_all(request: Request):
+    """Search every stored document's chunks at once, from the main page.
+
+    Semantic (MiniLM) when the model is available, keyword-overlap otherwise —
+    an install without the model still gets a working search, just a blunter
+    one, and the results say which mode ran."""
+    form = await request.form()
+    q = str(form.get("q", "")).strip()
+    if not q:
+        raise HTTPException(400, "nothing to search")
+    from .semantic import embed  # noqa: PLC0415
+
+    corpus = _corpus()
+    n_docs = len(corpus)
+    n_units = sum(len(units) for _, units, _ in corpus)
+    qv_arr = embed([q])
+    hits: list[tuple[float, str, dict]] = []
+    if qv_arr is not None:
+        mode = "semantic"
+        qv = qv_arr[0]
+        for job_id, units, vecs in corpus:
+            if vecs is None:
+                continue
+            for u, v in zip(units, vecs):
+                hits.append((float(v @ qv), job_id, u))
+    else:
+        mode = "keyword"
+        terms = [t for t in re.split(r"\W+", q.lower()) if t]
+        for job_id, units, _ in corpus:
+            for u in units:
+                text = (u.get("embed_text") or u.get("content") or "").lower()
+                score = sum(text.count(t) for t in terms)
+                if score:
+                    hits.append((float(score), job_id, u))
+    hits.sort(key=lambda h: -h[0])
+    top = hits[:10]
+    job_names = {jid: (JOBS[jid].filename if jid in JOBS else jid)
+                 for _, jid, _ in top}
+    return templates.TemplateResponse(request, "_search.html", {
+        "q": q, "hits": top, "mode": mode,
+        "n_docs": n_docs, "n_units": n_units, "job_names": job_names,
+    })
+
+
+@app.get("/documents", response_class=HTMLResponse)
+def documents(request: Request):
+    """The full archive — every job ever processed, not just the recent ten."""
+    jobs = sorted(JOBS.values(), key=lambda j: j.created, reverse=True)
+    counts: dict[str, int | None] = {}
+    for j in jobs:
+        try:
+            meta = json.loads((DATA / j.id / "profile.json").read_text())
+            counts[j.id] = meta.get("totals", {}).get("units")
+        except (OSError, ValueError):
+            counts[j.id] = None
+    return templates.TemplateResponse(request, "documents.html", {
+        "jobs": jobs, "counts": counts,
+        "total_units": sum(c or 0 for c in counts.values()),
+    })
 
 
 @app.post("/jobs/{job_id}/query", response_class=HTMLResponse)
