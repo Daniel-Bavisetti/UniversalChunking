@@ -32,6 +32,12 @@ vision = [
     "huggingface-hub>=0.21",
     "rapidocr>=3.9",
 ]
+# VLM scene descriptions and actions for video units, through any
+# OpenAI-compatible endpoint (OpenAI, Gemini, Ollama, vLLM). Without it the
+# VKE_*_PROVIDER settings fall back to offline and units carry detector labels.
+vlm = [
+    "openai>=1.40",
+]
 # The video engine (vke/): ASR, scene cuts, multimodal boundaries.
 video = [
     "faster-whisper>=1.1",

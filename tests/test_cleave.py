@@ -676,20 +676,20 @@ def _vke_unit(**overrides):
     return VkeUnit(**base)
 
 
-def test_video_unit_carries_scene_description_and_actions():
+def test_video_unit_carries_scene_description_and_actions(tmp_path):
     """A VLM's description and actions must reach the unit content — otherwise
     enabling the vision provider changes nothing the user can see or search."""
-    from pathlib import Path
-
     from cleave.ingest_video import _as_cleave_unit
 
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"fake")
     u = _vke_unit(
         visual_context="Water is being poured into a vase of flowers.",
         visual_source="vlm",
         actions=["pouring water"],
         objects=["vase"],
     )
-    unit = _as_cleave_unit(u, Path("clip.mp4"))
+    unit = _as_cleave_unit(u, clip)
     assert "Water is being poured into a vase" in unit.content
     assert "pouring water" in unit.content
     # the richer description leads; raw labels stay as supporting evidence
@@ -697,26 +697,38 @@ def test_video_unit_carries_scene_description_and_actions():
     assert unit.metadata["actions"] == ["pouring water"]
 
 
-def test_video_unit_states_when_there_is_no_audio_track():
-    from pathlib import Path
-
+def test_video_unit_states_when_there_is_no_audio_track(tmp_path):
     from cleave.ingest_video import _as_cleave_unit
 
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"fake")
     u = _vke_unit(objects=["vase"])
-    silent = _as_cleave_unit(u, Path("clip.mp4"), has_audio=False)
+    silent = _as_cleave_unit(u, clip, has_audio=False)
     assert "no audio" in silent.content.lower()
 
-    quiet = _as_cleave_unit(u, Path("clip.mp4"), has_audio=True)
+    quiet = _as_cleave_unit(u, clip, has_audio=True)
     assert "no speech" in quiet.content.lower()
     assert "no audio" not in quiet.content.lower()
 
 
-def test_video_unit_with_speech_gets_no_silence_note():
-    from pathlib import Path
-
+def test_video_unit_with_speech_gets_no_silence_note(tmp_path):
     from cleave.ingest_video import _as_cleave_unit
 
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"fake")
     u = _vke_unit(transcript="Here we water the flowers.", objects=["vase"])
-    unit = _as_cleave_unit(u, Path("clip.mp4"))
+    unit = _as_cleave_unit(u, clip)
     assert unit.content.startswith("Here we water the flowers.")
     assert "no speech" not in unit.content.lower()
+
+
+def test_video_unit_keeps_heuristic_measurements_out_of_content(tmp_path):
+    from cleave.ingest_video import _as_cleave_unit
+
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"fake")
+    u = _vke_unit(visual_context="low on-screen text density, some motion",
+                  visual_source="heuristic", objects=["vase"])
+    unit = _as_cleave_unit(u, clip)
+    assert "low on-screen text density" not in unit.content
+    assert unit.metadata["visual_context"] == "low on-screen text density, some motion"

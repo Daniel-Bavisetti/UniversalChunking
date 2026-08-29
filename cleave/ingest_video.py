@@ -100,7 +100,8 @@ def ingest_video(path: str | Path, progress=None) -> tuple[IngestResult | None,
              path.name, meta.duration, len(vke_units), VKE_CONFIG)
 
     if BOUNDARY_ENGINE == "vke":
-        units = [_as_cleave_unit(u, path) for u in vke_units]
+        units = [_as_cleave_unit(u, path, has_audio=getattr(meta, "has_audio", True))
+                 for u in vke_units]
         _annotate_unit_semantics(units)
         return None, units
 
@@ -180,7 +181,7 @@ def _as_elements(vke_units, meta, path: Path) -> IngestResult:
 
 # ───────── level 2: VKE's own boundaries, imported whole ─────────
 
-def _as_cleave_unit(u, path: Path) -> KnowledgeUnit:
+def _as_cleave_unit(u, path: Path, has_audio: bool = True) -> KnowledgeUnit:
     """Map one VKE KnowledgeUnit onto Cleave's.
 
     The boundary explanation survives the crossing: VKE scores each cut against
@@ -198,7 +199,22 @@ def _as_cleave_unit(u, path: Path) -> KnowledgeUnit:
         signals["boundary_score"] = float(u.boundary.score)
     if getattr(u.boundary, "threshold", None) is not None:
         signals["threshold"] = float(u.boundary.threshold)
-    content_parts = [u.transcript or ""]
+    transcript = (u.transcript or "").strip()
+    content_parts = [transcript]
+    if not transcript:
+        # An empty transcript must say WHY it is empty, or the unit reads as a
+        # bug. A missing audio track and a silent stretch are different facts.
+        content_parts.append(
+            "(This video has no audio track; the unit is visual evidence only.)"
+            if not has_audio else
+            "(No speech in this segment; the unit is visual evidence only.)")
+    visual = (getattr(u, "visual_context", "") or "").strip()
+    # Only a model's description belongs in content; the heuristic fallback is
+    # measurement prose ("low edge density...") and stays in metadata.
+    if visual and getattr(u, "visual_source", "") == "vlm":
+        content_parts.append("Scene: " + visual)
+    if getattr(u, "actions", None):
+        content_parts.append("Actions: " + "; ".join(u.actions[:8]))
     if getattr(u, "ocr_text", None):
         content_parts.append("Text on screen: " + " · ".join(u.ocr_text[:20]))
     if getattr(u, "objects", None):
@@ -235,6 +251,10 @@ def _as_cleave_unit(u, path: Path) -> KnowledgeUnit:
             "speakers": list(getattr(u, "speakers", [])),
             "ocr_text": list(getattr(u, "ocr_text", [])),
             "objects": list(getattr(u, "objects", [])),
+            "actions": list(getattr(u, "actions", [])),
+            "visual_context": visual,
+            "visual_source": getattr(u, "visual_source", ""),
+            "has_audio": has_audio,
             "visual_sources": list(getattr(u, "visual_sources", [])),
             "observations": [o.model_dump() for o in getattr(u, "observations", [])],
             "quality": getattr(u, "quality", None),
