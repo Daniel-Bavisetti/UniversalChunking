@@ -1,10 +1,28 @@
-"""Audio ingestion (stretch): one HTTP call to the local STT worker.
+"""Audio ingestion: meetings, interviews, lectures, voice notes.
 
-Deliberately minimal — Cleave does not do audio intelligence of its own. The
-STT worker (a separate venv: Docling pins transformers<5.9 on macOS, the MLX
-audio stack needs >=5.14) returns timestamped, speaker-attributed segments;
-they normalize into the same ContentElements as everything else and the
-temporal chunker takes it from there.
+A recording becomes timestamped, speaker-attributed segments; the temporal
+chunker downstream turns speaker turns into chunk boundaries, so nobody's
+words are ever attributed to someone else.
+
+Three engines, tried in an order that reflects what they cost:
+
+  1. **External STT worker** — an HTTP service, when one is running. Preferred
+     because it may be a bigger model on better hardware than this machine.
+  2. **mlx-whisper** (vendored meetgraph engine selection) — Apple-Silicon GPU
+     transcription. On an M-series Mac this is the difference between the GPU
+     doing the work and a pinned CPU core doing it for minutes.
+  3. **faster-whisper** (the video engine's ASR) — CPU, works everywhere.
+
+Speaker labels come from meetgraph's Resemblyzer path: a learned voice
+embedding per utterance, clustered online by nearest centroid. A learned
+embedding separates similar voices far better than spectral features; when
+Resemblyzer is not installed, the video engine's clustering diarizer is the
+fallback, and if that also fails the transcript arrives unattributed rather
+than the job failing.
+
+Every choice is recorded — the engine label lands in the log and the fallback
+reasons land in the ingest warnings, so a transcript with no speakers can
+always explain itself.
 """
 
 from __future__ import annotations
@@ -24,6 +42,11 @@ log = logging.getLogger(__name__)
 STT_URL = os.environ.get("CLEAVE_STT_URL", "http://127.0.0.1:8000")
 TIMEOUT_S = 600
 
+#: auto — worker when reachable, local otherwise. local — never call the worker.
+ASR_ENGINE = os.environ.get("CLEAVE_ASR_ENGINE", "auto").lower()
+#: Whisper size preset (tiny/base/small/medium/large-v3) or an HF repo id.
+ASR_MODEL = os.environ.get("CLEAVE_ASR_MODEL", "base")
+
 
 def _from_worker(path: Path) -> list[dict]:
     """The external STT service, when one is running."""
@@ -42,52 +65,128 @@ def _from_worker(path: Path) -> list[dict]:
     return result.get("segments") or []
 
 
-def _from_local(path: Path) -> list[dict]:
-    """In-process transcription with the video engine's own ASR.
+# ───────── local engines (vendored meetgraph + the video engine) ─────────
 
-    faster-whisper bundles PyAV, so it decodes an audio file directly with no
-    system ffmpeg, and CTranslate2 means no torch. That makes a meeting
-    recording work out of the box rather than depending on a second service
-    someone remembered to start — which is the difference between a demo that
-    runs and a demo that 500s.
+def _transcribe_mlx(audio, model_name: str) -> list[dict]:
+    """Apple-Silicon GPU transcription, timestamps included.
+
+    meetgraph's ``MLXWhisperTranscriber`` returns plain text because its app
+    segments audio upstream; we need the segment timestamps, so this calls
+    mlx-whisper directly and borrows only the preset→repo mapping.
     """
-    from vke.asr import transcribe  # noqa: PLC0415
-    from vke.diarize import apply_to_utterances, diarize  # noqa: PLC0415
+    import mlx_whisper  # noqa: PLC0415 — Apple-only, present via the extra
 
-    utterances, _provider = transcribe(path)
-    try:
-        turns = diarize(path, utterances)
-        utterances = apply_to_utterances(utterances, turns)
-    except Exception as exc:      # a heuristic must never fail the job
-        log.info("diarization skipped (%s: %s)", type(exc).__name__, exc)
+    from meetgraph.transcribe import MLXWhisperTranscriber  # noqa: PLC0415
+
+    repo = (model_name if "/" in model_name
+            else MLXWhisperTranscriber._PRESET.get(model_name,
+                                                   MLXWhisperTranscriber._PRESET["base"]))
+    result = mlx_whisper.transcribe(audio, path_or_hf_repo=repo)
     return [
-        {"text": u.text, "start": u.start, "end": u.end,
-         "speaker": getattr(u, "speaker", None)}
-        for u in utterances
+        {"text": (s.get("text") or "").strip(),
+         "start": float(s.get("start", 0.0)), "end": float(s.get("end", 0.0))}
+        for s in result.get("segments", [])
+        if (s.get("text") or "").strip()
     ]
 
 
-def ingest_audio(path: str | Path) -> IngestResult:
-    """Transcribe a recording, preferring whichever engine is actually there.
+def _transcribe_cpu(path: Path) -> tuple[list[dict], str]:
+    """faster-whisper via the video engine — CPU, no torch, decodes directly."""
+    from vke.asr import transcribe  # noqa: PLC0415
 
-    A meeting, an interview or a lecture becomes timestamped, speaker-attributed
-    segments; the temporal chunker then makes speaker turns the chunk
-    boundaries, so nobody's words are ever attributed to another person.
+    utterances, provider = transcribe(path, model_name=ASR_MODEL)
+    return [
+        {"text": u.text, "start": u.span.start, "end": u.span.end}
+        for u in utterances
+    ], provider
+
+
+def _label_speakers(segments: list[dict], audio, rate: int,
+                    path: Path, warnings: list[str]) -> str:
+    """Attach a speaker label to each segment, best backend first.
+
+    Returns the backend label used ("" when the transcript stays unattributed).
+    Mutates ``segments`` in place; a segment that cannot be labelled keeps
+    ``speaker=None`` rather than inheriting its neighbour's voice.
     """
+    # 1 — Resemblyzer voice embeddings (vendored meetgraph)
+    try:
+        from meetgraph.diarize import SpeakerLabeler  # noqa: PLC0415
+
+        labeler = SpeakerLabeler()
+        if labeler.available and audio is not None and len(audio):
+            for s in segments:
+                lo, hi = int(s["start"] * rate), int(s["end"] * rate)
+                s["speaker"] = labeler.label(audio[lo:hi], rate)
+            return f"resemblyzer ({labeler.backend})"
+        warnings.append("Resemblyzer voice embeddings unavailable — "
+                        "falling back to spectral clustering")
+    except Exception as exc:
+        warnings.append(f"Resemblyzer diarization failed ({type(exc).__name__}) — "
+                        "falling back to spectral clustering")
+
+    # 2 — the video engine's clustering diarizer
+    try:
+        from vke.diarize import apply_to_utterances, diarize  # noqa: PLC0415
+        from vke.schemas import Span, Utterance  # noqa: PLC0415
+
+        utts = [Utterance(id=f"u{i:04d}", span=Span(start=s["start"], end=s["end"]),
+                          text=s["text"])
+                for i, s in enumerate(segments)]
+        utts = apply_to_utterances(utts, diarize(path, utts))
+        for s, u in zip(segments, utts):
+            s["speaker"] = u.speaker
+        return "vke spectral clustering"
+    except Exception as exc:
+        warnings.append(f"diarization unavailable ({type(exc).__name__}) — "
+                        "transcript is unattributed; chunking falls back to pauses")
+        return ""
+
+
+def _from_local(path: Path, warnings: list[str]) -> tuple[list[dict], str]:
+    """In-process transcription. → (segments, engine label)."""
+    from meetgraph.transcribe import resolve_device  # noqa: PLC0415
+    from vke.diarize import load_audio  # noqa: PLC0415
+
+    audio, rate = load_audio(path)
+
+    segments: list[dict] = []
+    engine = ""
+    if resolve_device("auto") == "mlx" and len(audio):
+        try:
+            segments = _transcribe_mlx(audio, ASR_MODEL)
+            engine = f"mlx-whisper:{ASR_MODEL} (Apple GPU)"
+        except Exception as exc:
+            warnings.append(f"MLX transcription failed ({type(exc).__name__}) — "
+                            "using faster-whisper on CPU")
+    if not segments:
+        segments, engine = _transcribe_cpu(path)
+
+    if segments:
+        backend = _label_speakers(segments, audio, rate, path, warnings)
+        if backend:
+            engine += f" · speakers via {backend}"
+    return segments, engine
+
+
+def ingest_audio(path: str | Path) -> IngestResult:
+    """Transcribe a recording, preferring whichever engine is actually there."""
     path = Path(path)
     warnings: list[str] = []
 
-    try:
-        segments = _from_worker(path)
-        source = "STT worker"
-    except Exception as exc:
-        log.info("STT worker unavailable (%s) — using the local ASR engine",
-                 type(exc).__name__)
-        warnings.append(
-            f"external STT worker unavailable ({type(exc).__name__}); "
-            "transcribed locally with faster-whisper instead")
-        segments = _from_local(path)
-        source = "local faster-whisper"
+    segments: list[dict] = []
+    source = ""
+    if ASR_ENGINE != "local":
+        try:
+            segments = _from_worker(path)
+            source = "STT worker"
+        except Exception as exc:
+            log.info("STT worker unavailable (%s) — transcribing locally",
+                     type(exc).__name__)
+            if ASR_ENGINE == "worker":
+                raise
+    if not source:
+        segments, source = _from_local(path, warnings)
 
     if not segments:
         warnings.append("transcript came back with no segments")

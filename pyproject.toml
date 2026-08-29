@@ -39,6 +39,17 @@ video = [
     "pydantic>=2.9",
     "pydantic-settings>=2.4",
 ]
+# Meetings & audio (vendored meetgraph engines): Resemblyzer speaker
+# embeddings, and GPU transcription on Apple Silicon via MLX. torch is
+# already in the tree through sentence-transformers, so Resemblyzer adds
+# little on top.
+meetings = [
+    "resemblyzer>=0.1.1",
+    # webrtcvad (a resemblyzer dependency) imports pkg_resources, which
+    # setuptools removed in v81 — the last series that still ships it is 80.x.
+    "setuptools>=70,<81",
+    "mlx-whisper>=0.4; sys_platform == 'darwin' and platform_machine == 'arm64'",
+]
 # Web ingestion. trafilatura is the fast path and is cheap to install;
 # crawl4ai brings a headless browser and is only needed for JS-rendered pages.
 web = [

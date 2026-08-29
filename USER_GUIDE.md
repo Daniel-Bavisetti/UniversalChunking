@@ -38,17 +38,21 @@ The very first PDF takes about 15 seconds longer than usual while Docling downlo
 loads its layout models. After that it is a few seconds per file. *If you are demoing,
 process one throwaway file first so nothing pays that cost in front of an audience.*
 
-### Optional: audio
+### Audio and meetings
 
-Audio transcription runs in a separate service, because the document stack and the audio
-stack need conflicting versions of the same libraries. If you have the STT project:
+Audio works out of the box: recordings are transcribed in-process (on the GPU via
+mlx-whisper on Apple Silicon, faster-whisper on CPU elsewhere) and speaker-labelled with
+Resemblyzer voice embeddings — the engines vendored from
+[sensein/meetgraph](https://github.com/sensein/meetgraph) in `meetgraph/`. Install them with:
 
 ```bash
-cd ~/PycharmProjects/STT && .venv/bin/python -m uvicorn --factory stt.server.app:app_factory --port 8000
+uv sync --extra video --extra meetings
 ```
 
-Cleave finds it automatically. Without it, audio uploads fail with a clear message and
-everything else works normally.
+If an external STT worker is running on `CLEAVE_STT_URL` (default port 8000), it is
+preferred — it may be a bigger model on better hardware. `CLEAVE_ASR_ENGINE=local` skips
+the worker entirely; `CLEAVE_ASR_MODEL` picks the whisper size (default `base`). The
+**System status** panel shows which engine and diarizer will actually run.
 
 ### Optional: AI enrichment
 
@@ -137,7 +141,7 @@ cost by 63% with no change to the output. `CLEAVE_ENRICH_BATCH` tunes the batch 
 |---|---|
 | Documents | PDF, DOCX, PPTX, Markdown, HTML, TXT |
 | Spreadsheets | CSV, XLSX (every sheet) |
-| Audio | MP3, M4A, WAV, FLAC — needs the STT worker |
+| Audio | MP3, M4A, WAV, FLAC — transcribed in-process; STT worker used when running |
 | Contract | JSON from another modality worker (see [CONTRACT.md](CONTRACT.md)) |
 
 Up to 50 MB. Large PDFs work but are slower — table structure recognition runs on CPU on
@@ -276,7 +280,7 @@ routing responds to the shape of the input, and that every unit can explain itse
 
 | Symptom | Cause and fix |
 |---|---|
-| Audio job fails immediately | The STT worker is not running — start it on port 8000. |
+| Audio has no speaker labels | Install the `meetings` extra for Resemblyzer voice embeddings; without it, spectral clustering is the fallback. |
 | No `situating context` anywhere | No API key found, or `CLEAVE_LLM=none`. Chunks show as `needs context` instead; nothing else changes. |
 | Search returns "embedding model unavailable" | `sentence-transformers` did not install. Everything except search still works. |
 | First PDF is slow | One-time Docling model download. Subsequent runs are fast. |

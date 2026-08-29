@@ -24,8 +24,9 @@ input ──▶ modality extraction ──▶ content elements ──▶ context
 ```
 
 1. **Understand** — Docling parses documents into a typed structure (headings, paragraphs,
-   tables with grids, figures, captions, reading order). Audio arrives as timestamped,
-   speaker-attributed segments from a separate STT worker.
+   tables with grids, figures, captions, reading order). Audio is transcribed in-process
+   (GPU via mlx-whisper on Apple Silicon, faster-whisper elsewhere) and speaker-labelled
+   with Resemblyzer voice embeddings; an external STT worker is used when one is running.
 2. **Relate** — a context graph links captions to their floats (Docling refs, then bbox
    adjacency), resolves "Table 3"-style mentions to the actual table, and rebuilds heading
    ancestry from section numbering (Docling reports every heading as level 1, so *3.2.1*
@@ -57,8 +58,7 @@ uv sync
 uv run python -m cleave.app        # → http://127.0.0.1:8321
 ```
 
-Upload a PDF/DOCX/MD, a CSV/XLSX, or an audio file (the latter needs the STT worker, see
-below). Inspect the routing decision, the units, and each unit's receipt.
+Upload a PDF/DOCX/MD, a CSV/XLSX, an image, a video, an audio recording — or paste a URL. Inspect the routing decision, the units, and each unit's receipt.
 
 ```bash
 cd ~/PycharmProjects/STT && .venv/bin/python -m uvicorn --factory stt.server.app:app_factory --port 8000
@@ -100,7 +100,7 @@ no number in the UI is hand-written.
 | `cleave/tabular.py` | Column type inference, schema cards, header-repeating row groups |
 | `cleave/evaluate.py` | Fixed-size baseline + Context Preservation Scorecard |
 | `cleave/app.py` | FastAPI + HTMX UI (jobs, results, receipts, retrieval) |
-| `cleave/ingest_audio.py` | Audio via the local STT worker |
+| `cleave/ingest_audio.py` | Audio: STT worker → mlx/faster-whisper + Resemblyzer speakers |
 | `cleave/ingest_contract.py` | Import from an external modality worker |
 | `cleave/enrich.py`, `cleave/llm.py` | Selective LLM enrichment |
 | `cleave/semantic.py` | Embedding topic-drift boundaries for flat prose |

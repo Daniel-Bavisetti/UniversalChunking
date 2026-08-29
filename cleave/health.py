@@ -150,6 +150,39 @@ def _check_video() -> Check:
     return Check("video", "Video engine", True, "active", how)
 
 
+def _check_audio() -> Check:
+    """Meetings & audio: which transcription engine will actually run, and
+    whether speakers will be separated. Engine resolution is meetgraph's
+    (CUDA > Apple-GPU MLX > CPU); labelling is Resemblyzer voice embeddings
+    with the video engine's clustering as fallback."""
+    try:
+        from meetgraph.transcribe import compute_label, resolve_device  # noqa: PLC0415
+
+        device = resolve_device("auto")
+        engine = {"cuda": "faster-whisper", "mlx": "mlx-whisper",
+                  "cpu": "faster-whisper"}[device] + f" — {compute_label('auto')}"
+    except Exception:
+        device = None
+        try:
+            import faster_whisper  # noqa: F401, PLC0415
+
+            engine = "faster-whisper — CPU"
+        except Exception:
+            return Check("audio", "Meetings & audio", False, "unavailable",
+                         "no transcription engine — install the 'video' extra "
+                         "or run the STT worker")
+
+    try:
+        from resemblyzer import VoiceEncoder  # noqa: F401, PLC0415
+
+        speakers = "Resemblyzer voice embeddings"
+    except Exception:
+        speakers = "spectral clustering (install the 'meetings' extra for "\
+                   "Resemblyzer voice embeddings)"
+    return Check("audio", "Meetings & audio", True, "active",
+                 f"{engine} · speakers via {speakers}")
+
+
 def _check_web() -> Check:
     """Static extraction is the fast path; the browser is the escalation."""
     static = rendered = False
@@ -215,6 +248,7 @@ def system_status(refresh: bool = False) -> list[dict[str, Any]]:
         _check_retrieval(embeddings),
         _check_vision(),
         _check_video(),
+        _check_audio(),
         _check_web(),
         _check_llm(),
     ]
