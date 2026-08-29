@@ -16,6 +16,53 @@ dependencies = [
     "sentence-transformers>=3",
     "tiktoken>=0.7",
     "uvicorn>=0.30",
+    "python-dotenv>=1.2.3",
+    # Frame decode and image I/O. Shared by the video engine, standalone image
+    # ingestion and PDF figure cropping, so it is core rather than an extra.
+    "opencv-python>=4.10",
+    "numpy>=2.0",
+]
+
+# Every extra below degrades gracefully: without it the matching input still
+# runs and records WHY a producer did not, rather than failing the job.
+[project.optional-dependencies]
+# Visual understanding without an API: OCR and object detection on CPU.
+vision = [
+    "onnxruntime>=1.14",
+    "huggingface-hub>=0.21",
+    "rapidocr>=3.9",
+]
+# VLM scene descriptions and actions for video units, through any
+# OpenAI-compatible endpoint (OpenAI, Gemini, Ollama, vLLM). Without it the
+# VKE_*_PROVIDER settings fall back to offline and units carry detector labels.
+vlm = [
+    "openai>=1.40",
+]
+# The video engine (vke/): ASR, scene cuts, multimodal boundaries.
+video = [
+    "faster-whisper>=1.1",
+    "scenedetect>=0.7",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.4",
+]
+# Meetings & audio (vendored meetgraph engines): Resemblyzer speaker
+# embeddings, and GPU transcription on Apple Silicon via MLX. torch is
+# already in the tree through sentence-transformers, so Resemblyzer adds
+# little on top.
+meetings = [
+    "resemblyzer>=0.1.1",
+    # webrtcvad (a resemblyzer dependency) imports pkg_resources, which
+    # setuptools removed in v81 — the last series that still ships it is 80.x.
+    "setuptools>=70,<81",
+    "mlx-whisper>=0.4; sys_platform == 'darwin' and platform_machine == 'arm64'",
+]
+# Web ingestion. trafilatura is the fast path and is cheap to install;
+# crawl4ai brings a headless browser and is only needed for JS-rendered pages.
+web = [
+    "trafilatura>=1.12",
+]
+web-rendered = [
+    "crawl4ai>=0.4",
 ]
 
 [dependency-groups]

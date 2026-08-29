@@ -6,3 +6,16 @@ data/jobs/
 nohup.out
 .idea/
 .env
+
+# VKE runtime: per-video extraction caches, uploads and sampled frames.
+# These are derived artifacts and can be large (a processed video is ~2MB).
+data/store/
+data/uploads/
+data/_frames/
+data/_spike/
+data/_fixture_build/
+data/_extract_fixture.json
+
+# Downloaded ONNX weights (yolov10n, PP-OCR) — fetched on demand.
+models/
+.pytest_cache/

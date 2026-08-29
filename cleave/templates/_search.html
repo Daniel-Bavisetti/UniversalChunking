@@ -1,0 +1,52 @@
+{% set chip = {
+  "structural":         "border-blue-400/30 bg-blue-500/10 text-blue-300",
+  "hybrid":             "border-indigo-400/30 bg-indigo-500/10 text-indigo-300",
+  "atomic":             "border-amber-400/30 bg-amber-500/10 text-amber-300",
+  "tabular":            "border-teal-400/30 bg-teal-500/10 text-teal-300",
+  "semantic":           "border-violet-400/30 bg-violet-500/10 text-violet-300",
+  "paragraph_fallback": "border-slate-400/25 bg-slate-500/10 text-slate-300",
+  "temporal":           "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
+  "imported":           "border-fuchsia-400/30 bg-fuchsia-500/10 text-fuchsia-300",
+} %}
+<div id="search-results" class="mt-3.5">
+  {% if hits %}
+  <div class="mb-2.5 text-[11.5px] text-[color:var(--faint)]">
+    top {{ hits | length }} for <span class="text-[color:var(--text)]">“{{ q }}”</span> —
+    {{ mode }} search over {{ "{:,}".format(n_units) }} chunks in {{ n_docs }} document job{{ "s" if n_docs != 1 }}
+  </div>
+  <div class="space-y-1.5">
+    {% for score, job_id, u in hits %}
+    <a href="/jobs/{{ job_id }}#{{ u.id }}"
+       class="block rounded-xl border border-[color:var(--line)] bg-[color:var(--bg-soft)]
+              px-3.5 py-2.5 transition hover:border-[color:var(--brand)]/50">
+      <div class="flex flex-wrap items-center gap-2 text-[11.5px]">
+        <span class="max-w-[16rem] truncate font-semibold text-white">
+          {{ u.context.document_title or job_names.get(job_id, job_id) }}</span>
+        <span class="chip {{ chip.get(u.decision.strategy, chip['paragraph_fallback']) }}">{{ u.decision.strategy }}</span>
+        {% if u.context.heading_path %}
+        <span class="truncate text-[color:var(--muted)]">{{ u.context.heading_path | join(" › ") }}</span>
+        {% endif %}
+        {% if u.temporal %}
+        <span class="stat text-emerald-300">{{ "%.0f" | format(u.temporal.start_s) }}s{% if u.temporal.speaker %} · {{ u.temporal.speaker }}{% endif %}</span>
+        {% endif %}
+        <span class="ml-auto flex items-center gap-2">
+          {% if mode == "semantic" %}
+          <span class="h-1 w-14 overflow-hidden rounded-full bg-[color:var(--surface-3)]">
+            <span class="block h-full rounded-full bg-[color:var(--brand)]"
+                  style="width: {{ (score * 100) | round | int if score > 0 else 0 }}%"></span>
+          </span>
+          <span class="stat text-[color:var(--faint)]">{{ "%.3f" | format(score) }}</span>
+          {% else %}
+          <span class="stat text-[color:var(--faint)]">{{ score | int }} match{{ "es" if score != 1 }}</span>
+          {% endif %}
+        </span>
+      </div>
+      <p class="mt-1.5 line-clamp-2 text-[12.5px] leading-relaxed text-[color:var(--muted)]">{{ u.content[:240] }}</p>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="mt-2 text-[12.5px] text-[color:var(--faint)]">
+    No chunks matched “{{ q }}” across {{ n_docs }} stored document job{{ "s" if n_docs != 1 }}.</p>
+  {% endif %}
+</div>

@@ -1,6 +1,18 @@
 {
  "by_model": [
   {
+   "model": "gemini-3.6-flash",
+   "calls": 29,
+   "in_tokens": 70380,
+   "out_tokens": 6908,
+   "cached_tokens": 0,
+   "cost_usd": 0.078689,
+   "failures": 0,
+   "estimated": false,
+   "local": false,
+   "cache_hit_pct": 0.0
+  },
+  {
    "model": "gemini-2.5-flash",
    "calls": 4,
    "in_tokens": 33537,
@@ -26,13 +38,13 @@
   }
  ],
  "totals": {
-  "calls": 8,
-  "in_tokens": 41737,
-  "out_tokens": 8125,
+  "calls": 37,
+  "in_tokens": 112117,
+  "out_tokens": 15033,
   "cached_tokens": 0,
-  "cost_usd": 0.022318,
+  "cost_usd": 0.101007,
   "local_calls": 4,
-  "paid_calls": 4
+  "paid_calls": 33
  },
- "last_job": "75939bc081"
+ "last_job": "d00d129b4b"
 }

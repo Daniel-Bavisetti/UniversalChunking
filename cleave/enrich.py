@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 from .llm import NoneProvider, get_provider
@@ -126,6 +127,9 @@ def enrich(units: list[KnowledgeUnit], document_text: str,
         "calls_saved_by_batching": 0,
     }
     if provider.name == "none" or not flagged:
+        # No LLM will run — but flagged chunks still deserve SOMETHING situating
+        # them. The extractive fallback is free, local and tier-1-labelled.
+        totals["fallback_gists"] = extractive_gists(units)
         return totals
 
     doc = document_text[:MAX_DOC_CHARS]
@@ -156,6 +160,10 @@ def enrich(units: list[KnowledgeUnit], document_text: str,
             if progress:
                 progress(done, len(batches))
 
+    # Whatever the LLM pass left unenriched (a failed batch, a dropped row in a
+    # reply) falls back to the local gist rather than staying empty.
+    totals["fallback_gists"] = extractive_gists(units)
+
     totals["calls_saved_by_batching"] = max(0, len(flagged) - totals["api_calls"])
     log.info(
         "enrichment: %d/%d units via %s in %d call(s) — %d call(s) saved by batching",
@@ -163,3 +171,74 @@ def enrich(units: list[KnowledgeUnit], document_text: str,
         totals["api_calls"], totals["calls_saved_by_batching"],
     )
     return totals
+
+
+# ───────── tier-1 fallback: a gist with no LLM at all ─────────
+
+#: Sentences below this length are headings, cell debris or fragments — they
+#: make a gist worse, not shorter.
+_MIN_SENT_CHARS = 25
+_GIST_SENTENCES = 2
+
+_SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+def _gist_candidates(u: KnowledgeUnit) -> list[str]:
+    """The sentences a gist could be built from — prose only.
+
+    A schema card or a row group is already its own summary, and sentence-
+    splitting a table produces garbage, so non-prose units are skipped rather
+    than given a bad gist.
+    """
+    if u.metadata.get("element_kind") in ("schema_card", "row_group"):
+        return []
+    sents = [s.strip() for s in _SENT_SPLIT.split(u.content) if len(s.strip()) >= _MIN_SENT_CHARS]
+    return sents[:30]
+
+
+def extractive_gists(units: list[KnowledgeUnit]) -> int:
+    """Give flagged-but-unenriched units a local, model-free gist (tier 1).
+
+    When no LLM is configured — or its calls failed — a flagged chunk used to
+    stay at tier 0 with nothing situating it at all. This picks the chunk's
+    most central sentences by embedding similarity to the chunk's own centroid:
+    purely extractive, so it can never assert anything the chunk does not say,
+    and free, so it runs even in a fully offline demo.
+
+    Tier 1 (`local model`) marks it apart from an LLM's tier 2, so a gist is
+    never mistaken for situating context written with the whole document in
+    view. Returns how many units were given one.
+    """
+    try:
+        from .semantic import embed  # noqa: PLC0415
+    except Exception:
+        return 0
+
+    pending = [(u, _gist_candidates(u))
+               for u in units
+               if u.decision.escalation_flags and not u.context.situating_summary]
+    pending = [(u, sents) for u, sents in pending if len(sents) >= 3]
+    if not pending:
+        return 0
+
+    all_sents = [s for _u, sents in pending for s in sents]
+    vecs = embed(all_sents)
+    if vecs is None:
+        return 0
+
+    applied, offset = 0, 0
+    for u, sents in pending:
+        n = len(sents)
+        block = vecs[offset:offset + n]
+        offset += n
+        centroid = block.mean(axis=0)
+        norm = (centroid @ centroid) ** 0.5 or 1.0
+        scores = [float(v @ centroid) / norm for v in block]
+        top = sorted(sorted(range(n), key=lambda i: -scores[i])[:_GIST_SENTENCES])
+        u.context.situating_summary = " ".join(sents[i] for i in top)
+        u.context.tier = 1
+        applied += 1
+    if applied:
+        log.info("extractive fallback: %d unit(s) given a tier-1 gist (no model call)",
+                 applied)
+    return applied

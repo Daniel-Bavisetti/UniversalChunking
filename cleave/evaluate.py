@@ -80,7 +80,11 @@ class ArmScore:
 
 
 def score_document(path: str, fixed: ArmScore, cleave: ArmScore) -> None:
-    ingest = ingest_document(path)
+    # use_llm=False keeps the scorecard what it claims to be: no model calls, no
+    # judgement, the same probe strings searched in both arms. Letting figure
+    # vision run here would make the measurement depend on a paid API and on
+    # which day it ran.
+    ingest = ingest_document(path, use_llm=False)
     graph = ContextGraph(ingest.elements)
     units, _profile = chunk(ingest, graph)
 

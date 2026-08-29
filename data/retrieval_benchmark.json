@@ -1,0 +1,363 @@
+{
+ "generated_by": "python -m cleave.benchmark",
+ "corpus": [
+  "executive_summary.pdf",
+  "attention_paper.pdf",
+  "flat_essay.md",
+  "product_page.html",
+  "sales_q3.csv",
+  "people_ops.xlsx",
+  "orders.json",
+  "quarterly_chart.png",
+  "audio_sample.m4a",
+  "fixture.mp4"
+ ],
+ "questions": 20,
+ "embedding_model": "all-MiniLM-L6-v2",
+ "retrieval": "cosine over one shared pool, both arms identical",
+ "wall_clock_s": 570.6,
+ "fixed": {
+  "name": "fixed_512_64",
+  "chunks": 93,
+  "recall": {
+   "@1": 0.5,
+   "@3": 0.6,
+   "@5": 0.6
+  },
+  "mrr": 0.55,
+  "ndcg@5": 0.5631
+ },
+ "cleave": {
+  "name": "cleave",
+  "chunks": 116,
+  "recall": {
+   "@1": 0.65,
+   "@3": 0.75,
+   "@5": 0.8
+  },
+  "mrr": 0.7042,
+  "ndcg@5": 0.8477
+ },
+ "per_question": [
+  {
+   "arm": "fixed_512_64",
+   "question": "Which repository is recommended for rapid reuse of document parsing and ingestion?",
+   "source": "executive_summary.pdf",
+   "first_relevant_rank": null,
+   "top1_source": "executive_summary.pdf",
+   "top1_preview": "Executive Summary\n\nWe evaluated three open-source repositoriesmmore (EPFL LiGHT), RAG-Anything (HKU), and Docling (IBM)-for solving a multim"
+  },
+  {
+   "arm": "fixed_512_64",
+   "question": "What score does RAG-Anything receive as a turnkey multimodal RAG pipeline?",
+   "source": "executive_summary.pdf",
+   "first_relevant_rank": null,
+   "top1_source": "executive_summary.pdf",
+   "top1_preview": " reusables, effort, license, gaps, etc. An integration roadmap (Gantt) is provided for a 1-2 person, 1-month effort, along with architecture"
+  },
+  {
+   "arm": "fixed_512_64",
+   "question": "What are dominant sequence transduction models based on?",
+   "source": "attention_paper.pdf",
+   "first_relevant_rank": 1,
+   "top1_source": "attention_paper.pdf",
+   "top1_preview": "Provided proper attribution is provided, Google hereby grants permission to reproduce the tables and figures in this paper solely for use in"
+  },
+  {
+   "arm": "fixed_512_64",
+   "question": "What is the Transformer architecture based solely on?",
+   "source": "attention_paper.pdf",
+   "first_relevant_rank": null,
+   "top1_source": "attention_paper.pdf",
+   "top1_preview": " \u00d7 d model.\n\nIn this work we employ h = 8 parallel attention layers, or heads. For each of these we use d k = d v = d model /h = 64. Due to "
+  },
+  {
+   "arm": "fixed_512_64",
+   "question": "What BLEU score did the model achieve on the WMT 2014 English-to-German translation task?",
+   "source": "attention_paper.pdf",
+   "first_relevant_rank": null,
+   "top1_source": "attention_paper.pdf",
+   "top1_preview": " model surpasses all previously published models and ensembles, at a fraction of the training cost of any of the competitive models.\n\nOn the"
+  },
+  {
+   "arm": "fixed_512_64",
+   "question": "What happened to the remote work shift that began as an emergency measure?",
+   "source": "flat_essay.md",
+   "first_relevant_rank": 1,
+   "top1_source": "flat_essay.md",
+   "top1_preview": "The shift toward remote work that began as an emergency measure has settled into something more permanent, and organizations are still worki"
+  },
+  {
+   "arm": "fixed_512_64",
+   "question": "What does the essay predict the preparation of organizational knowledge becomes?",
+   "source": "flat_essay.md",
+   "first_relevant_rank": 1,
+   "top1_source": "flat_essay.md",
+   "top1_preview": " out to be where most of the difficulty lives. Breaking a body of material into pieces sounds like a formality, but every boundary is a smal"
+  },
+  {
+   "arm": "fixed_512_64",
+   "question": "What is the throughput of the Cirrus Hub gateway?",
+   "source": "product_page.html",
+   "first_relevant_rank": 1,
+   "top1_source": "product_page.html",
+   "top1_preview": "Cirrus Hub\n\nCirrus Hub is the aggregation gateway of the sensor line: it pools up to 64 Ember Nodes,\n\ndeduplicates their readings, and forwa"
+  },
+  {
+   "arm": "fixed_512_64",
+   "question": "What is the list price of a Cirrus Hub unit?",
+   "source": "product_page.html",
+   "first_relevant_rank": 1,
+   "top1_source": "product_page.html",
+   "top1_preview": "Cirrus Hub\n\nCirrus Hub is the aggregation gateway of the sensor line: it pools up to 64 Ember Nodes,\n\ndeduplicates their readings, and forwa"
+  },
+  {
+   "arm": "fixed_512_64",
+   "question": "How many Ember Nodes can one Cirrus Hub pool together?",
+   "source": "product_page.html",
+   "first_relevant_rank": 1,
+   "top1_source": "product_page.html",
+   "top1_preview": "Cirrus Hub\n\nCirrus Hub is the aggregation gateway of the sensor line: it pools up to 64 Ember Nodes,\n\ndeduplicates their readings, and forwa"
+  },
+  {
+   "arm": "fixed_512_64",
+   "question": "How many rows and columns does the quarterly sales dataset contain?",
+   "source": "sales_q3.csv",
+   "first_relevant_rank": null,
+   "top1_source": "quarterly_chart.png",
+   "top1_preview": "Text in image: Quarterly Revenue by Region \u00b7 $930k \u00b7 $780k \u00b7 $615k \u00b7 $450k \u00b7 North \u00b7 South \u00b7 East \u00b7 West \u00b7 Q3 2026 \u2013 North leads, West trail"
+  },
+  {
+   "arm": "fixed_512_64",
+   "question": "What is the revenue for sales order SO-10001?",
+   "source": "sales_q3.csv",
+   "first_relevant_rank": 2,
+   "top1_source": "quarterly_chart.png",
+   "top1_preview": "Text in image: Quarterly Revenue by Region \u00b7 $930k \u00b7 $780k \u00b7 $615k \u00b7 $450k \u00b7 North \u00b7 South \u00b7 East \u00b7 West \u00b7 Q3 2026 \u2013 North leads, West trail"
+  },
+  {
+   "arm": "fixed_512_64",
+   "question": "Which sheet tracks voluntary and involuntary departures by quarter?",
+   "source": "people_ops.xlsx",
+   "first_relevant_rank": 2,
+   "top1_source": "quarterly_chart.png",
+   "top1_preview": "Text in image: Quarterly Revenue by Region \u00b7 $930k \u00b7 $780k \u00b7 $615k \u00b7 $450k \u00b7 North \u00b7 South \u00b7 East \u00b7 West \u00b7 Q3 2026 \u2013 North leads, West trail"
+  },
+  {
+   "arm": "fixed_512_64",
+   "question": "On which day is headcount measured according to the methodology note?",
+   "source": "people_ops.xlsx",
+   "first_relevant_rank": null,
+   "top1_source": "sales_q3.csv",
+   "top1_preview": "10010 | 2026-07-27 | Central | Cirrus Hub | M. Iqbal | 32 | 1081.47 | 15 | 29415.98 | pending |\n| SO-10011 | 2026-07-12 | East | Delta Probe"
+  },
+  {
+   "arm": "fixed_512_64",
+   "question": "Which products appear in the exported orders JSON?",
+   "source": "orders.json",
+   "first_relevant_rank": null,
+   "top1_source": "sales_q3.csv",
+   "top1_preview": "| order_id | order_date | region | product | sales_rep | units | unit_price_usd | discount_pct | revenue_usd | status |\n|---|---|---|---|---"
+  },
+  {
+   "arm": "fixed_512_64",
+   "question": "Which region leads quarterly revenue and which trails, according to the chart?",
+   "source": "quarterly_chart.png",
+   "first_relevant_rank": 1,
+   "top1_source": "quarterly_chart.png",
+   "top1_preview": "Text in image: Quarterly Revenue by Region \u00b7 $930k \u00b7 $780k \u00b7 $615k \u00b7 $450k \u00b7 North \u00b7 South \u00b7 East \u00b7 West \u00b7 Q3 2026 \u2013 North leads, West trail"
+  },
+  {
+   "arm": "fixed_512_64",
+   "question": "What did the speaker ask to remove from the dashboard?",
+   "source": "audio_sample.m4a",
+   "first_relevant_rank": 1,
+   "top1_source": "audio_sample.m4a",
+   "top1_preview": "Yes, yes. Okay, so faster dashboard should be according to this ink.\n\nYes, I just tell you and remove clients and internal projects here lik"
+  },
+  {
+   "arm": "fixed_512_64",
+   "question": "How does the user sign in, in the demo video?",
+   "source": "fixture.mp4",
+   "first_relevant_rank": 1,
+   "top1_source": "fixture.mp4",
+   "top1_preview": "Let's start by configuring authentication for the application. The user signs in with the username and a password. Once those credentials ar"
+  },
+  {
+   "arm": "fixed_512_64",
+   "question": "What does the database migration add to the existing schema?",
+   "source": "fixture.mp4",
+   "first_relevant_rank": 1,
+   "top1_source": "fixture.mp4",
+   "top1_preview": "Let's start by configuring authentication for the application. The user signs in with the username and a password. Once those credentials ar"
+  },
+  {
+   "arm": "fixed_512_64",
+   "question": "Where is the container image pushed after the build in the video?",
+   "source": "fixture.mp4",
+   "first_relevant_rank": null,
+   "top1_source": "executive_summary.pdf",
+   "top1_preview": " is a high-level plan (1-2 engineers, 4 weeks):\n\nText in image: Integration Plan (1 Month) \u00b7 Week 1: Senjp I& Exploration \u00b7 nalronment setug"
+  },
+  {
+   "arm": "cleave",
+   "question": "Which repository is recommended for rapid reuse of document parsing and ingestion?",
+   "source": "executive_summary.pdf",
+   "first_relevant_rank": 1,
+   "top1_source": "executive_summary.pdf",
+   "top1_preview": "Executive Summary\n\nKey Recommendations:\n\nKey Recommendations:\n\nFor rapid reuse of document parsing and ingestion, Docling is best: it easily"
+  },
+  {
+   "arm": "cleave",
+   "question": "What score does RAG-Anything receive as a turnkey multimodal RAG pipeline?",
+   "source": "executive_summary.pdf",
+   "first_relevant_rank": 1,
+   "top1_source": "executive_summary.pdf",
+   "top1_preview": "Executive Summary\n\nRAG-Anything (HKU)\n\nRAG-Anything (HKU)\n\nSummary: mmore is highly relevant if a turnkey multimodal RAG pipeline is needed "
+  },
+  {
+   "arm": "cleave",
+   "question": "What are dominant sequence transduction models based on?",
+   "source": "attention_paper.pdf",
+   "first_relevant_rank": null,
+   "top1_source": "attention_paper.pdf",
+   "top1_preview": "Attention Is All You Need\n\n3 Model Architecture > 3.4 Embeddings and Softmax\n\n3.4 Embeddings and Softmax\n\nSimilarly to other sequence transd"
+  },
+  {
+   "arm": "cleave",
+   "question": "What is the Transformer architecture based solely on?",
+   "source": "attention_paper.pdf",
+   "first_relevant_rank": null,
+   "top1_source": "attention_paper.pdf",
+   "top1_preview": "Attention Is All You Need\n\n3 Model Architecture\n\n3 Model Architecture\n\nMost competitive neural sequence transduction models have an encoder-"
+  },
+  {
+   "arm": "cleave",
+   "question": "What BLEU score did the model achieve on the WMT 2014 English-to-German translation task?",
+   "source": "attention_paper.pdf",
+   "first_relevant_rank": 2,
+   "top1_source": "attention_paper.pdf",
+   "top1_preview": "Attention Is All You Need\n\n6 Results > 6.1 Machine Translation\n\n6.1 Machine Translation\n\nOn the WMT 2014 English-to-German translation task,"
+  },
+  {
+   "arm": "cleave",
+   "question": "What happened to the remote work shift that began as an emergency measure?",
+   "source": "flat_essay.md",
+   "first_relevant_rank": 1,
+   "top1_source": "flat_essay.md",
+   "top1_preview": "The shift toward remote work that began as an emergency measure has settled into something more permanent, and organizations are still worki"
+  },
+  {
+   "arm": "cleave",
+   "question": "What does the essay predict the preparation of organizational knowledge becomes?",
+   "source": "flat_essay.md",
+   "first_relevant_rank": 1,
+   "top1_source": "flat_essay.md",
+   "top1_preview": "What seems likely is that the preparation of organizational knowledge becomes a discipline of its own, the way data engineering did a decade"
+  },
+  {
+   "arm": "cleave",
+   "question": "What is the throughput of the Cirrus Hub gateway?",
+   "source": "product_page.html",
+   "first_relevant_rank": 1,
+   "top1_source": "product_page.html",
+   "top1_preview": "Cirrus Hub\n\nSpecifications\n\n| Property | Value |\n|---|---|\n| Throughput | 1.2M readings/min |\n| Uplink | LTE-M, Ethernet, LoRa |\n| Power | P"
+  },
+  {
+   "arm": "cleave",
+   "question": "What is the list price of a Cirrus Hub unit?",
+   "source": "product_page.html",
+   "first_relevant_rank": 1,
+   "top1_source": "product_page.html",
+   "top1_preview": "Cirrus Hub\n\nPricing\n\nPricing\n\nList price is $1,095 per unit with volume tiers at 25 and 100 units."
+  },
+  {
+   "arm": "cleave",
+   "question": "How many Ember Nodes can one Cirrus Hub pool together?",
+   "source": "product_page.html",
+   "first_relevant_rank": 1,
+   "top1_source": "product_page.html",
+   "top1_preview": "Cirrus Hub\n\nCirrus Hub\n\nCirrus Hub\n\nCirrus Hub is the aggregation gateway of the sensor line: it pools up to 64 Ember Nodes,\n\ndeduplicates t"
+  },
+  {
+   "arm": "cleave",
+   "question": "How many rows and columns does the quarterly sales dataset contain?",
+   "source": "sales_q3.csv",
+   "first_relevant_rank": 4,
+   "top1_source": "people_ops.xlsx",
+   "top1_preview": "people_ops\n\npeople_ops.xlsx > Attrition\n\nDataset: people_ops.xlsx \u00b7 sheet \u201cAttrition\u201d\n16 rows \u00d7 5 columns\n\nColumns:\n  - quarter (date): e.g."
+  },
+  {
+   "arm": "cleave",
+   "question": "What is the revenue for sales order SO-10001?",
+   "source": "sales_q3.csv",
+   "first_relevant_rank": null,
+   "top1_source": "sales_q3.csv",
+   "top1_preview": "sales_q3\n\nsales_q3.csv\n\n| order_id | order_date | region | product | sales_rep | units | unit_price_usd | discount_pct | revenue_usd | statu"
+  },
+  {
+   "arm": "cleave",
+   "question": "Which sheet tracks voluntary and involuntary departures by quarter?",
+   "source": "people_ops.xlsx",
+   "first_relevant_rank": 3,
+   "top1_source": "people_ops.xlsx",
+   "top1_preview": "people_ops\n\npeople_ops.xlsx > Attrition\n\nDataset: people_ops.xlsx \u00b7 sheet \u201cAttrition\u201d\n16 rows \u00d7 5 columns\n\nColumns:\n  - quarter (date): e.g."
+  },
+  {
+   "arm": "cleave",
+   "question": "On which day is headcount measured according to the methodology note?",
+   "source": "people_ops.xlsx",
+   "first_relevant_rank": 1,
+   "top1_source": "people_ops.xlsx",
+   "top1_preview": "people_ops\n\npeople_ops.xlsx > Notes\n\n| topic | note |\n|---|---|\n| Methodology | Headcount is measured on the last calendar day of the quarte"
+  },
+  {
+   "arm": "cleave",
+   "question": "Which products appear in the exported orders JSON?",
+   "source": "orders.json",
+   "first_relevant_rank": 1,
+   "top1_source": "orders.json",
+   "top1_preview": "orders\n\norders.json > orders\n\nDataset: orders.json \u00b7 sheet \u201corders\u201d\n12 rows \u00d7 7 columns\n\nColumns:\n  - id (categorical): SO-1000, SO-1001, SO"
+  },
+  {
+   "arm": "cleave",
+   "question": "Which region leads quarterly revenue and which trails, according to the chart?",
+   "source": "quarterly_chart.png",
+   "first_relevant_rank": 1,
+   "top1_source": "quarterly_chart.png",
+   "top1_preview": "quarterly_chart\n\nText in image: Quarterly Revenue by Region \u00b7 $930k \u00b7 $780k \u00b7 $615k \u00b7 $450k \u00b7 North \u00b7 South \u00b7 East \u00b7 West \u00b7 Q3 2026 \u2013 North "
+  },
+  {
+   "arm": "cleave",
+   "question": "What did the speaker ask to remove from the dashboard?",
+   "source": "audio_sample.m4a",
+   "first_relevant_rank": null,
+   "top1_source": "audio_sample.m4a",
+   "top1_preview": "audio_sample\n\nspeaker: Speaker 1\n\non view in the my day also here it's a list and come on view over here. Yeah, give me all the things"
+  },
+  {
+   "arm": "cleave",
+   "question": "How does the user sign in, in the demo video?",
+   "source": "fixture.mp4",
+   "first_relevant_rank": 1,
+   "top1_source": "fixture.mp4",
+   "top1_preview": "Configuring\n\nThe user signs in with the username and a password. That token identifies the user on every later request. The password is neve"
+  },
+  {
+   "arm": "cleave",
+   "question": "What does the database migration add to the existing schema?",
+   "source": "fixture.mp4",
+   "first_relevant_rank": 1,
+   "top1_source": "fixture.mp4",
+   "top1_preview": "Now we move on to the database migration\n\nNow we move on to the database migration. The migration adds a new table and a new column to the e"
+  },
+  {
+   "arm": "cleave",
+   "question": "Where is the container image pushed after the build in the video?",
+   "source": "fixture.mp4",
+   "first_relevant_rank": 1,
+   "top1_source": "fixture.mp4",
+   "top1_preview": "Each server pulls the new container image from that registry\n\nThe build produces a container image which we push to the registry. Each serve"
+  }
+ ]
+}

@@ -56,7 +56,9 @@ def workbook():
 
 def test_structured_document_routes_structural(paper):
     _units, profile = paper
-    assert profile.route == "structural"
+    # hybrid = structural regions + semantic cut selection; which one fires
+    # depends on whether the embedding model is installed
+    assert profile.route in ("structural", "hybrid")
     assert profile.heading_count >= 3
 
 
@@ -240,7 +242,7 @@ def test_contract_rejects_an_unknown_version():
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
         json.dump({"contract": 99, "elements": []}, f)
         path = f.name
-    with pytest.raises(ValueError, match="unsupported contract version"):
+    with pytest.raises(ValueError, match="contract version 99 is not supported"):
         load_contract(path)
 
 
@@ -559,3 +561,176 @@ def test_units_serialize_with_embed_text(sales):
     d = units[0].to_dict()
     assert d["embed_text"] and d["modality"] == "document"
     assert isinstance(d["decision"]["cost_usd"], float)
+
+
+# ───────── system status (demo reliability) ─────────
+
+def test_env_file_is_loaded_into_the_environment():
+    """`cp .env.example .env` must be sufficient configuration — no manual
+    exporting, no reaching into another checkout for a key."""
+    import os
+    from pathlib import Path
+
+    import cleave  # noqa: F401 — importing the package loads .env
+
+    example = Path(cleave.__file__).resolve().parent.parent / ".env.example"
+    assert example.exists(), ".env.example is the documented starting point"
+    declared = {line.split("=", 1)[0].strip()
+                for line in example.read_text().splitlines()
+                if line.strip() and not line.startswith("#") and "=" in line}
+    # Every documented variable is readable through os.environ once .env exists,
+    # which is the contract the app and docs rely on.
+    assert "GEMINI_API_KEY" in declared and "CLEAVE_LLM" in declared
+    assert all(isinstance(os.environ.get(k, ""), str) for k in declared)
+
+
+def test_no_credentials_are_read_from_outside_the_project():
+    """A key living in another project on one machine is a demo that only
+    works on that machine."""
+    from pathlib import Path
+
+    import cleave.llm as llm_mod
+
+    source = Path(llm_mod.__file__).read_text()
+    assert "PycharmProjects" not in source
+    assert "Path.home()" not in source
+
+
+def test_status_reports_every_subsystem():
+    from cleave.health import system_status
+
+    checks = system_status(refresh=True)
+    keys = [c["key"] for c in checks]
+    assert keys == ["parser", "embeddings", "retrieval", "vision",
+                "video", "audio", "web", "llm"]
+    assert all({"key", "label", "ok", "state", "detail"} <= set(c) for c in checks)
+
+
+def test_banner_is_unambiguous_when_no_provider_is_configured(monkeypatch):
+    """The failure this panel exists to prevent: the flagship feature silently
+    doing nothing while the UI looks fine."""
+    from cleave import health as health_mod
+    from cleave.llm import NoneProvider
+
+    monkeypatch.setattr("cleave.llm.get_provider", lambda: NoneProvider())
+    check = health_mod._check_llm()
+    assert not check.ok and check.state == "not_configured"
+
+    banner = health_mod.enrichment_banner([check.to_dict()])
+    assert banner["state"] == "inactive"
+    assert "deterministic mode" in banner["text"]
+
+
+def test_a_configured_but_dead_model_reports_unavailable(monkeypatch):
+    """A valid key pointed at a retired model is the exact failure a
+    config-presence check misses: it authenticates, then 404s on use."""
+    from cleave import health as health_mod
+
+    class DeadProvider:
+        name, model = "gemini", "gemini-retired"
+
+        def is_configured(self):
+            return True
+
+        def complete_json(self, prompt, *, system=None, schema=None):
+            return "", {"model": self.model}       # what a 404 looks like here
+
+    monkeypatch.setattr("cleave.llm.get_provider", lambda: DeadProvider())
+    check = health_mod._check_llm()
+    assert not check.ok and check.state == "unavailable"
+    assert "gemini-retired" in check.detail
+
+    banner = health_mod.enrichment_banner([check.to_dict()])
+    assert banner["state"] == "inactive"
+
+
+def test_health_endpoint_exposes_the_banner_and_checks(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from cleave.app import app
+    from cleave.llm import NoneProvider
+
+    monkeypatch.setattr("cleave.llm.get_provider", lambda: NoneProvider())
+    with TestClient(app) as client:
+        body = client.get("/health", params={"refresh": "true"}).json()
+        assert body["enrichment"]["state"] == "inactive"
+        assert [c["key"] for c in body["checks"]][0] == "parser"
+
+        html = client.get("/status").text
+        assert "LLM Enrichment unavailable" in html
+
+
+# ───────────────────────── video unit mapping ─────────────────────────
+
+def _vke_unit(**overrides):
+    from vke.schemas import BoundaryExplanation, Span
+    from vke.schemas import KnowledgeUnit as VkeUnit
+
+    base = dict(
+        id="u_000",
+        video_id="vid",
+        span=Span(start=0.0, end=30.0),
+        title="(no speech)",
+        transcript="",
+        boundary=BoundaryExplanation(ts=0.0, score=0.9, threshold=0.4),
+    )
+    base.update(overrides)
+    return VkeUnit(**base)
+
+
+def test_video_unit_carries_scene_description_and_actions(tmp_path):
+    """A VLM's description and actions must reach the unit content — otherwise
+    enabling the vision provider changes nothing the user can see or search."""
+    from cleave.ingest_video import _as_cleave_unit
+
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"fake")
+    u = _vke_unit(
+        visual_context="Water is being poured into a vase of flowers.",
+        visual_source="vlm",
+        actions=["pouring water"],
+        objects=["vase"],
+    )
+    unit = _as_cleave_unit(u, clip)
+    assert "Water is being poured into a vase" in unit.content
+    assert "pouring water" in unit.content
+    # the richer description leads; raw labels stay as supporting evidence
+    assert unit.content.index("Water is being poured") < unit.content.index("Visible:")
+    assert unit.metadata["actions"] == ["pouring water"]
+
+
+def test_video_unit_states_when_there_is_no_audio_track(tmp_path):
+    from cleave.ingest_video import _as_cleave_unit
+
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"fake")
+    u = _vke_unit(objects=["vase"])
+    silent = _as_cleave_unit(u, clip, has_audio=False)
+    assert "no audio" in silent.content.lower()
+
+    quiet = _as_cleave_unit(u, clip, has_audio=True)
+    assert "no speech" in quiet.content.lower()
+    assert "no audio" not in quiet.content.lower()
+
+
+def test_video_unit_with_speech_gets_no_silence_note(tmp_path):
+    from cleave.ingest_video import _as_cleave_unit
+
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"fake")
+    u = _vke_unit(transcript="Here we water the flowers.", objects=["vase"])
+    unit = _as_cleave_unit(u, clip)
+    assert unit.content.startswith("Here we water the flowers.")
+    assert "no speech" not in unit.content.lower()
+
+
+def test_video_unit_keeps_heuristic_measurements_out_of_content(tmp_path):
+    from cleave.ingest_video import _as_cleave_unit
+
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"fake")
+    u = _vke_unit(visual_context="low on-screen text density, some motion",
+                  visual_source="heuristic", objects=["vase"])
+    unit = _as_cleave_unit(u, clip)
+    assert "low on-screen text density" not in unit.content
+    assert unit.metadata["visual_context"] == "low on-screen text density, some motion"

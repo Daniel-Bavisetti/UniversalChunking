@@ -90,9 +90,9 @@ def chunk(ingest: IngestResult, graph: ContextGraph) -> tuple[list[KnowledgeUnit
                                     new_unit_id, base_provenance, ingest)
     elif profile.route == "temporal":
         text_units = _temporal_units(stream, graph, new_unit_id, base_provenance, ingest.title)
-    elif profile.route == "structural":
+    elif profile.route in ("structural", "hybrid"):
         text_units = _structural_units(stream, graph, new_unit_id, base_provenance,
-                                       ingest.title, profile)
+                                       ingest.title, profile, strategy=profile.route)
     else:
         text_units = _packed_units(stream, graph, new_unit_id, base_provenance,
                                    ingest.title, profile, strategy="paragraph_fallback")
@@ -127,11 +127,15 @@ def _atomic_units(e: ContentElement, captions: list[ContentElement],
     heading_path = graph.heading_path(e.id)
     grid: list[list[str]] = e.meta.get("grid", [])
     header: list[str] = e.meta.get("header_row", [])
+    visual: dict = e.meta.get("visual") or {}
     leading, trailing = graph.surrounding_text(e.id)
 
     def make(content: str, reason: str, vetoed: list[str], part: str | None = None):
+        # A figure that vision understood is no longer "uncaptioned" in the sense
+        # the flag means — something now states what it shows.
+        described = bool(cap_text) or bool(e.meta.get("visual", {}).get("description"))
         flags = escalation_flags(content, heading_path, "atomic",
-                                 kind=e.kind, has_caption=bool(cap_text))
+                                 kind=e.kind, has_caption=described)
         return KnowledgeUnit(
             id=new_unit_id(),
             content=content,
@@ -145,18 +149,39 @@ def _atomic_units(e: ContentElement, captions: list[ContentElement],
                 signals={"caption_confidence":
                          1.0 if e.meta.get("caption_ids") else (0.8 if cap_text else 0.0)},
             ),
-            metadata={"element_kind": e.kind, **({"part": part} if part else {})},
+            entities=list(visual.get("visual_entities", []))[:8],
+            metadata={
+                "element_kind": e.kind,
+                **({"part": part} if part else {}),
+                # Provenance for every visual claim in the content: which models
+                # ran, which did not and why. An empty field stays explainable.
+                **({"visual": visual, "visual_type": visual.get("visual_type")}
+                   if visual else {}),
+                **({"visual_skipped": e.meta["visual_skipped"]}
+                   if e.meta.get("visual_skipped") else {}),
+            },
             token_count=count_tokens(content),
         )
 
-    body = e.text if e.kind == "table" else ""
+    # A figure's text is its visual understanding (see figures.py / vision.py).
+    # Before that existed this was always "" for figures, which is how a figure
+    # unit ended up as a placeholder with nothing to retrieve.
+    body = e.text
     full = "\n\n".join(x for x in (cap_text, body) if x)
     if not full:
         full = f"[uncaptioned {e.kind} on page {e.page}]"
 
     if count_tokens(full) <= MAX_TOKENS or not grid:
-        reason = (f"{e.kind} kept whole with its caption — severing the pair is vetoed"
-                  if cap_text else f"{e.kind} kept as one unit")
+        if e.kind == "figure" and e.meta.get("visual"):
+            vtype = (e.meta.get("visual_type") or "figure").replace("_", " ")
+            reason = (f"{vtype} kept whole with its caption and what the picture "
+                      "shows — severing the pair is vetoed"
+                      if cap_text else
+                      f"{vtype} kept as one unit — its content is what vision read "
+                      "off the picture")
+        else:
+            reason = (f"{e.kind} kept whole with its caption — severing the pair is vetoed"
+                      if cap_text else f"{e.kind} kept as one unit")
         yield make(full, reason, vetoed=[])
         return
 
@@ -201,9 +226,13 @@ def _atomic_units(e: ContentElement, captions: list[ContentElement],
 
 # ───────── structural ─────────
 
-def _structural_units(stream, graph, new_unit_id, base_provenance, title, profile):
+def _structural_units(stream, graph, new_unit_id, base_provenance, title, profile,
+                      strategy: str = "structural"):
     """One unit per innermost section; oversized sections split at veto-checked
-    paragraph boundaries, children inheriting the full heading path."""
+    paragraph boundaries, children inheriting the full heading path.
+
+    strategy="hybrid" keeps the same regions and the same vetoes but lets
+    embedding drift pick WHERE an oversized section splits (see _emit_region)."""
     sections: list[list[ContentElement]] = []
     cur: list[ContentElement] = []
     for e in stream:
@@ -219,7 +248,7 @@ def _structural_units(stream, graph, new_unit_id, base_provenance, title, profil
     out = []
     for sec in sections:
         out.extend(_emit_region(sec, graph, new_unit_id, base_provenance, title,
-                                strategy="structural", profile=profile))
+                                strategy=strategy, profile=profile))
     return out
 
 
@@ -258,7 +287,15 @@ def _emit_region(region, graph, new_unit_id, base_provenance, title,
                                   strategy, reason=_whole_reason(reg, strategy, tokens),
                                   vetoed=[], overflow=False, profile=profile))
             continue
-        cut = choose_cut(reg, graph)
+        sims = None
+        if strategy == "hybrid":
+            try:
+                from .semantic import boundary_similarities  # noqa: PLC0415
+
+                sims = boundary_similarities(reg)
+            except Exception:
+                sims = None
+        cut = choose_cut(reg, graph, sims=sims)
         if cut.index is None:
             out.append(_text_unit(reg, graph, new_unit_id, base_provenance, title,
                                   strategy,
@@ -267,17 +304,23 @@ def _emit_region(region, graph, new_unit_id, base_provenance, title,
                                   vetoed=cut.vetoes, overflow=True, profile=profile))
             continue
         left, right = reg[:cut.index], reg[cut.index:]
+        if cut.similarity is not None:
+            reason = (f"section of {tokens} tokens split where the topic drifts "
+                      f"(adjacent similarity {cut.similarity:.2f}) inside the "
+                      f"veto-safe window around {TARGET_TOKENS} tokens")
+        else:
+            reason = (f"section of {tokens} tokens split at the paragraph "
+                      f"boundary nearest {TARGET_TOKENS} tokens")
         out.append(_text_unit(left, graph, new_unit_id, base_provenance, title,
                               strategy,
-                              reason=(f"section of {tokens} tokens split at the paragraph "
-                                      f"boundary nearest {TARGET_TOKENS} tokens"),
+                              reason=reason,
                               vetoed=cut.vetoes, overflow=False, profile=profile))
         queue.insert(0, right)
     return out
 
 
 def _whole_reason(reg, strategy: str, tokens: int) -> str:
-    if strategy == "structural":
+    if strategy in ("structural", "hybrid"):
         head = next((e.text for e in reg if e.kind == "heading"), None)
         if head:
             return f"section {head[:60]!r} is {tokens} tokens — under budget, kept whole"
@@ -472,15 +515,22 @@ def _merge_span_meta(span) -> dict:
     """
     meta: dict = {}
     visuals: list[str] = []
+    semantics: list[dict] = []
     for e in span:
         for k, v in e.meta.items():
             if k == "visual_summary":
                 if v and v not in visuals:
                     visuals.append(v)
+            elif k == "semantics":
+                # One turn can ask a question AND assign a task — every
+                # labelled utterance in the span survives, none overwrites.
+                semantics.append(v)
             else:
                 meta[k] = v
     if visuals:
         meta["visual_summary"] = " · ".join(visuals)
+    if semantics:
+        meta["semantics"] = semantics
     return meta
 
 

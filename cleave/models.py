@@ -38,6 +38,10 @@ class RelationType(str, Enum):
     SPOKEN_BY = "spoken_by"
     SCHEMA_OF = "schema_of"           # schema card → the row groups it describes
     HAS_SCHEMA = "has_schema"         # row group → its schema card
+    # Meeting semantics (additive, contract-compatible: unknown types are
+    # filtered on import, so old consumers simply ignore these).
+    ANSWERS = "answers"               # answer unit → the question unit it resolves
+    ANSWERED_BY = "answered_by"       # question unit → where its answer lives
 
 
 # ───────── intermediate representation ─────────
@@ -111,8 +115,8 @@ class ChunkingDecision:
     """Why this chunk exists — the receipt shown in the demo. Every unit is
     explainable: strategy, reason, the cuts we refused to make, and cost."""
 
-    strategy: str                          # structural | paragraph_fallback | semantic |
-                                           # temporal | atomic
+    strategy: str                          # structural | hybrid | paragraph_fallback |
+                                           # semantic | temporal | atomic
     reason: str
     signals: dict[str, float] = field(default_factory=dict)
     vetoed_cuts: list[str] = field(default_factory=list)
@@ -143,18 +147,53 @@ class KnowledgeUnit:
         Surrounding prose is included because it is often the only thing that
         says what a table or figure is *for*; it stays out of `content` so a
         consumer can still display the chunk clean.
+
+        Visual evidence is embedded for the same reason it is extracted: a
+        video moment where a person is running, or a screen that reads "Deploy
+        Production", must be findable by those words even though the transcript
+        never says them. Dropping metadata evidence here would make everything
+        the vision stack produced unretrievable — extraction that retrieval
+        cannot see may as well not have run.
         """
         parts: list[str] = []
+        if self.context.document_title:
+            # The source's own name, so "what happened in <video X>" lands on
+            # that video's units rather than everyone's.
+            parts.append(self.context.document_title)
         if self.context.heading_path:
             parts.append(" > ".join(self.context.heading_path))
         if self.context.situating_summary:
             parts.append(self.context.situating_summary)
+        if self.temporal and self.temporal.speaker:
+            parts.append(f"speaker: {self.temporal.speaker}")
         if self.context.leading:
             parts.append(f"[before] {self.context.leading}")
         parts.append(self.content)
         if self.context.trailing:
             parts.append(f"[after] {self.context.trailing}")
-        return "\n\n".join(parts)
+
+        # ── visual + semantic evidence from metadata ──
+        md = self.metadata or {}
+        if md.get("visual_summary"):
+            parts.append(f"[on screen] {md['visual_summary']}")
+        ocr = md.get("ocr_text") or []
+        if ocr and "Text on screen:" not in self.content and "Text in image:" not in self.content:
+            parts.append("[text on screen] " + " · ".join(str(x) for x in ocr[:20]))
+        objects = md.get("objects") or []
+        if objects and "Visible:" not in self.content and "Objects detected:" not in self.content:
+            parts.append("[visible] " + ", ".join(sorted({str(x) for x in objects})[:12]))
+        if md.get("actions"):
+            parts.append("[actions] " + ", ".join(str(x) for x in md["actions"][:8]))
+        for sem in md.get("semantics", []):
+            kind = str(sem.get("type", "")).replace("_", " ")
+            if kind and kind != "statement":
+                bits = [f"[{kind}]", str(sem.get("text", ""))[:160]]
+                if sem.get("owner"):
+                    bits.append(f"owner: {sem['owner']}")
+                if sem.get("deadline"):
+                    bits.append(f"due: {sem['deadline']}")
+                parts.append(" ".join(bits))
+        return "\n\n".join(p for p in parts if p)
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)

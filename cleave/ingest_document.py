@@ -31,6 +31,7 @@ class IngestResult:
     sha256: str
     warnings: list[str] = field(default_factory=list)
     cleaning: dict | None = None      # what normalisation changed, by rule
+    figures: dict | None = None       # what visual understanding produced, if any
 
 
 _converter = None
@@ -54,6 +55,12 @@ def _get_converter():
         # Default num_threads is 4; this is a 14-core machine.
         pipeline = PdfPipelineOptions()
         pipeline.accelerator_options = AcceleratorOptions(num_threads=10)
+        # Keep the cropped picture for every figure. Without this a figure is
+        # only a bounding box, which is how figures ended up as the string
+        # "[uncaptioned figure on page N]" — a chunk with nothing to retrieve.
+        # 2× the page raster is enough for a vision model to read axis labels.
+        pipeline.generate_picture_images = True
+        pipeline.images_scale = 2.0
         _converter = DocumentConverter(
             format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline)}
         )
@@ -106,7 +113,8 @@ def _table_markdown(grid: list[list[str]]) -> str:
     return "\n".join(lines)
 
 
-def ingest_document(path: str | Path) -> IngestResult:
+def ingest_document(path: str | Path, *, use_llm: bool = True,
+                    ledger=None) -> IngestResult:
     path = Path(path)
     if path.suffix.lower() not in _DOC_EXTS:
         raise ValueError(f"unsupported document type: {path.suffix}")
@@ -117,6 +125,7 @@ def ingest_document(path: str | Path) -> IngestResult:
 
     elements: list[ContentElement] = []
     by_selfref: dict[str, str] = {}          # docling "#/texts/3" → our element id
+    figure_images: dict[str, object] = {}    # element id → cropped PIL image
     heading_stack: list[tuple[int, str, str | None]] = []  # (level, id, section number)
     title: str | None = None
     counter = 0
@@ -163,6 +172,14 @@ def ingest_document(path: str | Path) -> IngestResult:
             )
             elements.append(el)
             by_selfref[item.self_ref] = eid
+            # Hold the cropped picture so figures.py can look at it. Docling
+            # only produces one when generate_picture_images is on.
+            try:
+                image = item.get_image(doc)
+                if image is not None:
+                    figure_images[eid] = image
+            except Exception as exc:
+                warnings.append(f"{eid}: figure image unavailable ({type(exc).__name__})")
             continue
 
         if not isinstance(item, TextItem):
@@ -244,6 +261,19 @@ def ingest_document(path: str | Path) -> IngestResult:
         title = title or path.stem
         _label_sheets(path, elements, warnings)
 
+    # Figures become content before anything measures or cuts, for the same
+    # reason cleaning does: token counts, routing signals and cut vetoes should
+    # all describe the text that will actually be stored and embedded.
+    figures_report: dict | None = None
+    if figure_images:
+        from .figures import enrich_figures  # noqa: PLC0415
+
+        figures_report = enrich_figures(
+            elements, figure_images,
+            title=title or next((e.text for e in elements if e.kind == "heading"), None),
+            use_llm=use_llm, ledger=ledger,
+        )
+
     # Normalise before anything measures or splits: token counts, routing
     # signals and boundaries should all describe the text that will actually be
     # stored and embedded.
@@ -266,6 +296,7 @@ def ingest_document(path: str | Path) -> IngestResult:
         sha256=sha256_of(str(path)),
         warnings=warnings,
         cleaning=report.to_dict(),
+        figures=figures_report,
     )
 
 

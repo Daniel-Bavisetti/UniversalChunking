@@ -3,10 +3,14 @@
 {% block nav %}
 <nav class="flex items-center gap-1 text-[13px]">
   <a href="#upload" class="rounded-full px-3 py-1.5 font-medium text-[color:var(--muted)] hover:text-white">Upload</a>
+  <a href="#search" class="rounded-full px-3 py-1.5 font-medium text-[color:var(--muted)] hover:text-white">Search</a>
+  <a href="/documents" class="rounded-full px-3 py-1.5 font-medium text-[color:var(--muted)] hover:text-white">Documents</a>
+  <a href="#status" class="rounded-full px-3 py-1.5 font-medium text-[color:var(--muted)] hover:text-white">Status</a>
   {% if scorecard %}
   <a href="#scorecard" class="rounded-full px-3 py-1.5 font-medium text-[color:var(--muted)] hover:text-white">Evidence</a>
   {% endif %}
   <a href="#spend" class="rounded-full px-3 py-1.5 font-medium text-[color:var(--muted)] hover:text-white">Spend</a>
+  <a href="#pipelines" class="rounded-full px-3 py-1.5 font-medium text-[color:var(--muted)] hover:text-white">Pipelines</a>
   <a href="#jobs" class="rounded-full px-3 py-1.5 font-medium text-[color:var(--muted)] hover:text-white">Jobs</a>
 </nav>
 {% endblock %}
@@ -25,30 +29,58 @@
         Chunks that keep<br>their meaning.
       </h1>
       <p class="mt-5 max-w-xl text-[15px] leading-relaxed text-[color:var(--muted)]">
-        Most pipelines flatten a file to text and split every N tokens — tables lose their headers,
-        captions lose their figures, answers lose their questions. Cleave profiles the input first,
-        maps the relationships inside it, and refuses the cuts that would break them.
+        Structure-aware chunking for documents, media and web pages — cuts that never
+        sever a table from its header or a caption from its figure.
       </p>
 
       <form action="/api/jobs" method="post" enctype="multipart/form-data"
             id="upload-form" class="mt-8 max-w-xl" novalidate>
-        <div class="card flex flex-col gap-3 p-3 sm:flex-row sm:items-center">
-          <label for="file-input" class="min-w-0 flex-1 cursor-pointer px-2">
-            <input type="file" name="files" required id="file-input" multiple
-                   accept=".pdf,.docx,.pptx,.xlsx,.csv,.md,.txt,.html,.mp3,.m4a,.wav,.flac,.json"
-                   class="block w-full cursor-pointer text-sm text-[color:var(--muted)]
-                          file:mr-3 file:cursor-pointer file:rounded-full file:border-0
-                          file:bg-[color:var(--surface-3)] file:px-3.5 file:py-2
-                          file:text-[13px] file:font-semibold file:text-white
-                          hover:file:bg-[#24365c]">
-          </label>
-          <button type="submit" id="submit-btn" class="btn shrink-0 justify-center">
-            <span id="btn-label">Cleave it</span>
-            <span class="btn-arrow">
-              <svg viewBox="0 0 16 16" class="h-3 w-3" fill="none" stroke="currentColor"
-                   stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 8h9M8.5 4.5L12 8l-3.5 3.5"/></svg>
-            </span>
+        <div class="card p-3">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <button type="button" id="pick-btn"
+                    class="shrink-0 cursor-pointer rounded-full bg-[color:var(--surface-3)]
+                           px-4 py-2 text-[13px] font-semibold text-white hover:bg-[#24365c]">
+              Choose files
+            </button>
+            <span id="file-summary" class="min-w-0 flex-1 truncate text-sm text-[color:var(--muted)]">
+              No files chosen</span>
+            <button type="submit" id="submit-btn" class="btn shrink-0 justify-center">
+              <span id="btn-label">Cleave it</span>
+              <span class="btn-arrow">
+                <svg viewBox="0 0 16 16" class="h-3 w-3" fill="none" stroke="currentColor"
+                     stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 8h9M8.5 4.5L12 8l-3.5 3.5"/></svg>
+              </span>
+            </button>
+          </div>
+          <input type="file" name="files" id="file-input" multiple class="hidden"
+                 accept=".pdf,.docx,.pptx,.xlsx,.csv,.md,.txt,.html,.htm,.mp3,.m4a,.wav,.flac,.aac,.ogg,.json,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,.gif,.mp4,.mov,.mkv,.webm,.avi,.m4v">
+          <ul id="file-list" class="mt-2 hidden flex-col gap-1.5"></ul>
+          <div id="file-actions" class="mt-2 hidden justify-end">
+            <button type="button" id="clear-files"
+                    class="text-[12px] font-medium text-[color:var(--faint)] hover:text-rose-300">
+              Clear all files</button>
+          </div>
+        </div>
+
+        {# a URL is an input like any other: fetched to Markdown, then chunked
+           by the same router that handles a PDF #}
+        <div class="card mt-2.5 flex items-center gap-2 p-3">
+          <span class="shrink-0 pl-1 text-[color:var(--faint)]">
+            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round">
+              <path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.5 1.5"/>
+              <path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.5-1.5"/></svg>
+          </span>
+          <input type="url" name="urls" id="url-input" inputmode="url"
+                 placeholder="…or paste a web page URL (https://…)"
+                 class="field !border-0 !bg-transparent !px-1 !py-1 flex-1 !text-[13px]
+                        focus:!shadow-none">
+          <button type="button" id="clear-url" title="Clear" style="display:none"
+                  class="shrink-0 h-6 w-6 place-items-center rounded-full
+                         text-[color:var(--faint)] hover:bg-[color:var(--surface-3)] hover:text-white">
+            <svg viewBox="0 0 16 16" class="h-3 w-3" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
           </button>
         </div>
 
@@ -60,31 +92,34 @@
             <span class="pointer-events-none absolute left-0.5 h-4 w-4 rounded-full bg-white
                         transition-transform peer-checked:translate-x-4"></span>
           </span>
-          <span>
-            Summarize chunks with an LLM
-            <span class="text-[color:var(--faint)]">— situates context-poor chunks; leave off for a fully deterministic, free run</span>
-          </span>
+          <span>Summarize chunks with an LLM
+            <span class="text-[color:var(--faint)]">— off = free, deterministic run</span></span>
         </label>
         <input type="hidden" name="use_llm" id="use-llm-field" value="true">
+        <p id="upload-feedback" class="mt-2 hidden px-2 text-[12px] font-medium text-amber-300">
+          Choose at least one file, or paste a URL — then press Cleave it.</p>
       </form>
 
-      <p class="mt-3 max-w-xl px-2 text-[12px] leading-relaxed text-[color:var(--faint)]">
-        Select several files at once — a PDF, a spreadsheet, a call recording — and they land
-        as one combined job: each is routed on its own merits, then searched together.
-      </p>
-
-      <div class="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-[12px] text-[color:var(--faint)]">
-        {% for tone, label, formats in [
-          ("#4d82ff", "Documents",    "PDF · DOCX · PPTX · MD"),
-          ("#2dd4bf", "Spreadsheets", "CSV · XLSX"),
-          ("#34d399", "Audio",        "MP3 · M4A · WAV"),
-          ("#c084fc", "Contract",     "JSON")] %}
-        <span class="flex items-center gap-1.5">
-          <span class="h-1.5 w-1.5 rounded-full" style="background:{{ tone }}"></span>
-          <span class="font-medium text-[color:var(--muted)]">{{ label }}</span>
-          <span>{{ formats }}</span>
-        </span>
-        {% endfor %}
+      <div class="mt-6 max-w-xl">
+        <div class="label px-1">What you can drop in</div>
+        <div class="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {% for tone, label, formats in [
+            ("#4d82ff", "Documents",    "PDF · DOCX · PPTX · MD · TXT"),
+            ("#2dd4bf", "Spreadsheets", "CSV · XLSX"),
+            ("#f59e0b", "Images",       "PNG · JPG · GIF · scans"),
+            ("#f472b6", "Video",        "MP4 · MOV · MKV · WEBM"),
+            ("#34d399", "Audio",        "MP3 · M4A · WAV · FLAC"),
+            ("#38bdf8", "Web pages",    "paste a URL"),
+            ("#c084fc", "Contract",     "JSON")] %}
+          <div class="card-quiet px-3 py-2.5">
+            <div class="flex items-center gap-1.5">
+              <span class="h-1.5 w-1.5 shrink-0 rounded-full" style="background:{{ tone }}"></span>
+              <span class="text-[12.5px] font-semibold text-white">{{ label }}</span>
+            </div>
+            <div class="mt-0.5 text-[11px] text-[color:var(--faint)]">{{ formats }}</div>
+          </div>
+          {% endfor %}
+        </div>
       </div>
     </div>
 
@@ -95,7 +130,7 @@
         {% for n, title, detail in [
           ("1", "Understand", "Structure is extracted — headings, tables, captions, speakers — not just text."),
           ("2", "Relate",     "A context graph links captions to figures and references to their targets."),
-          ("3", "Route",      "Cheap signals pick the strategy: structural, tabular, temporal or semantic."),
+          ("3", "Route",      "Cheap signals pick the strategy: hybrid (structure + meaning), tabular, temporal or semantic."),
           ("4", "Cut safely", "Boundaries that would sever a relationship are vetoed and recorded."),
           ("5", "Enrich",     "Only chunks that structure cannot explain are sent to a model.")] %}
         <li class="flex gap-3.5">
@@ -109,6 +144,82 @@
         {% endfor %}
       </ol>
     </div>
+  </section>
+
+  {# ── samples: one click per data type ── #}
+  <section id="samples" class="pb-4">
+    <div class="card p-5">
+      <div class="flex flex-wrap items-baseline justify-between gap-2">
+        <span class="label">Try it on a sample</span>
+        <span class="text-[11.5px] text-[color:var(--muted)]">
+          one input per data type — each exercises a different route</span>
+      </div>
+      <form action="/api/samples" method="post" class="mt-3.5">
+        <input type="hidden" name="use_llm" id="use-llm-sample" value="true">
+        <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {% for key, s in samples.items() %}
+          <button type="submit" name="name" value="{{ key }}"
+                  class="card-quiet group flex items-start gap-2.5 px-3.5 py-3 text-left
+                         transition-colors hover:border-[color:var(--line-strong)]
+                         hover:bg-[color:var(--surface-2)]">
+            <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full" style="background:{{ s.tone }}"></span>
+            <span class="min-w-0">
+              <span class="block text-[13px] font-semibold text-white group-hover:text-[#8fb3ff]">
+                {{ s.label }}</span>
+              <span class="mt-0.5 block text-[11.5px] leading-relaxed text-[color:var(--faint)]">
+                {{ s.desc }}</span>
+            </span>
+          </button>
+          {% endfor %}
+          <button type="submit" name="name" value="all"
+                  class="group flex items-start gap-2.5 rounded-[14px] border border-[color:var(--brand)]/40
+                         bg-[color:var(--brand-soft)] px-3.5 py-3 text-left transition-colors
+                         hover:border-[color:var(--brand)]/70">
+            <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--brand)]"></span>
+            <span class="min-w-0">
+              <span class="block text-[13px] font-semibold text-[#8fb3ff]">Everything at once</span>
+              <span class="mt-0.5 block text-[11.5px] leading-relaxed text-[color:var(--muted)]">
+                all {{ samples | length }} samples as one job — each routed on its own merits</span>
+            </span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  {# ── global search: every chunk from every job ever processed ── #}
+  <section id="search" class="scroll-mt-24 pb-4">
+    <div class="card p-5">
+      <div class="flex flex-wrap items-baseline justify-between gap-2">
+        <span class="label">Search everything</span>
+        <span class="text-[11.5px] text-[color:var(--muted)]">
+          all chunks from all {{ total_jobs }} processed job{{ "s" if total_jobs != 1 }} —
+          <a href="/documents" class="text-[#8fb3ff] hover:underline">browse the archive</a></span>
+      </div>
+      <form hx-post="/search" hx-target="#search-results" hx-swap="outerHTML" class="mt-3.5">
+        <div class="flex flex-col gap-2.5 sm:flex-row">
+          <div class="relative flex-1">
+            <input name="q" autocomplete="off" class="field pr-10"
+                   placeholder="Ask across every document you've processed">
+            <svg class="htmx-indicator absolute right-3.5 top-3 h-4 w-4 animate-spin text-[color:var(--brand-hi)]"
+                 viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity=".18"/>
+              <path d="M22 12a10 10 0 00-10-10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+          </div>
+          <button class="btn shrink-0 justify-center">Search
+            <span class="btn-arrow"><svg viewBox="0 0 16 16" class="h-3 w-3" fill="none"
+              stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 8h9M8.5 4.5L12 8l-3.5 3.5"/></svg></span>
+          </button>
+        </div>
+        <div id="search-results"></div>
+      </form>
+    </div>
+  </section>
+
+  {# ── system status ── #}
+  <section id="status" class="pb-4">
+    {% include "_system_status.html" %}
   </section>
 
   {# ── scorecard ── #}
@@ -260,9 +371,50 @@
     {% endif %}
   </section>
 
+  {# ── pipelines: the stage path each data type takes ── #}
+  <section id="pipelines" class="scroll-mt-24 pb-6 pt-4">
+    <div class="mb-4">
+      <div class="label">Pipelines</div>
+      <h2 class="mt-1.5 text-2xl font-bold text-white">One path per data type</h2>
+      <p class="mt-1.5 max-w-2xl text-[13.5px] leading-relaxed text-[color:var(--muted)]">
+        Nothing is flattened to plain text first — each input runs the stages its
+        modality actually needs, and the status view tracks these same stages live.
+      </p>
+    </div>
+    <div class="card divide-y divide-[color:var(--line)] px-5">
+      {% for label, tone, steps in pipelines %}
+      <div class="flex flex-col gap-2 py-3.5 sm:flex-row sm:items-center sm:gap-4">
+        <span class="flex w-32 shrink-0 items-center gap-2">
+          <span class="h-1.5 w-1.5 shrink-0 rounded-full" style="background:{{ tone }}"></span>
+          <span class="text-[12.5px] font-semibold text-white">{{ label }}</span>
+        </span>
+        <span class="flex flex-wrap items-center gap-y-1.5 text-[11.5px] text-[color:var(--muted)]">
+          {% for step in steps %}
+          {% if not loop.first %}
+          <svg viewBox="0 0 16 16" class="mx-1.5 h-2.5 w-2.5 shrink-0 text-[color:var(--faint)]"
+               fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 8h9M8.5 4.5L12 8l-3.5 3.5"/></svg>
+          {% endif %}
+          <span class="rounded-full bg-[color:var(--surface-3)] px-2.5 py-1
+                       {{ 'font-medium text-[#8fb3ff]' if loop.last else 'text-[color:var(--text)]' }}">
+            {{ step }}</span>
+          {% endfor %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
   {# ── jobs ── #}
   <section id="jobs" class="scroll-mt-24 pb-20 pt-6">
-    <div class="label mb-3">Recent jobs</div>
+    <div class="mb-3 flex items-baseline justify-between gap-3">
+      <span class="label">Recent jobs</span>
+      {% if total_jobs > jobs | length %}
+      <a href="/documents" class="text-[12px] font-medium text-[#8fb3ff] hover:underline">
+        View all {{ total_jobs }} documents →</a>
+      {% endif %}
+    </div>
     {% if jobs %}
     <ul class="grid gap-2 sm:grid-cols-2">
       {% for j in jobs %}
@@ -293,16 +445,117 @@
 
 <script>
   document.getElementById('use-llm-toggle').addEventListener('change', (e) => {
-    document.getElementById('use-llm-field').value = e.target.checked ? 'true' : 'false';
+    const v = e.target.checked ? 'true' : 'false';
+    document.getElementById('use-llm-field').value = v;
+    const s = document.getElementById('use-llm-sample');
+    if (s) s.value = v;   // samples honor the same toggle
   });
 
-  document.getElementById('upload-form').addEventListener('submit', () => {
+  // ── managed file selection ──────────────────────────────────────────────
+  // The native multi-file input replaces its whole FileList on every pick and
+  // offers no per-file removal. We keep our own array, mirror it into the
+  // input via DataTransfer before each render, and draw a removable row per
+  // file. The input itself stays hidden; a plain button opens the picker.
+  const fileInput   = document.getElementById('file-input');
+  const fileList    = document.getElementById('file-list');
+  const fileActions = document.getElementById('file-actions');
+  const summary     = document.getElementById('file-summary');
+  const urlInput    = document.getElementById('url-input');
+  const clearUrl    = document.getElementById('clear-url');
+  let picked = [];
+
+  const fmtSize = (b) => b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB'
+                       : b >= 1024    ? Math.round(b / 1024) + ' KB' : b + ' B';
+
+  function renderFiles() {
+    const dt = new DataTransfer();
+    picked.forEach(f => dt.items.add(f));
+    fileInput.files = dt.files;
+
+    summary.textContent = picked.length
+      ? `${picked.length} file${picked.length > 1 ? 's' : ''} selected`
+      : 'No files chosen';
+    fileList.classList.toggle('hidden', !picked.length);
+    fileList.classList.toggle('flex', !!picked.length);
+    fileActions.classList.toggle('hidden', picked.length < 2);
+    fileActions.classList.toggle('flex', picked.length >= 2);
+
+    fileList.replaceChildren(...picked.map((f, i) => {
+      const li = document.createElement('li');
+      li.className = 'flex items-center gap-2 rounded-[10px] bg-[color:var(--bg-soft)] px-3 py-1.5';
+      const name = document.createElement('span');
+      name.className = 'min-w-0 flex-1 truncate text-[12.5px] text-[color:var(--text)]';
+      name.textContent = f.name;
+      const size = document.createElement('span');
+      size.className = 'shrink-0 text-[11px] text-[color:var(--faint)]';
+      size.textContent = fmtSize(f.size);
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.title = 'Remove';
+      rm.className = 'grid h-5 w-5 shrink-0 place-items-center rounded-full ' +
+                     'text-[color:var(--faint)] hover:bg-rose-500/15 hover:text-rose-300';
+      rm.innerHTML = '<svg viewBox="0 0 16 16" class="h-2.5 w-2.5" fill="none" ' +
+        'stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+      rm.addEventListener('click', () => { picked.splice(i, 1); renderFiles(); });
+      li.append(name, size, rm);
+      return li;
+    }));
+  }
+
+  document.getElementById('pick-btn').addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', () => {
+    for (const f of fileInput.files) {
+      // picking again ADDS to the selection instead of silently replacing it
+      if (!picked.some(p => p.name === f.name && p.size === f.size)) picked.push(f);
+    }
+    renderFiles();
+    document.getElementById('upload-feedback').classList.add('hidden');
+  });
+
+  document.getElementById('clear-files').addEventListener('click', () => {
+    picked = [];
+    renderFiles();
+  });
+
+  // ── URL box clear ──
+  urlInput.addEventListener('input', () => {
+    clearUrl.style.display = urlInput.value ? 'grid' : 'none';
+  });
+  clearUrl.addEventListener('click', () => {
+    urlInput.value = '';
+    clearUrl.style.display = 'none';
+    urlInput.focus();
+  });
+
+  document.getElementById('upload-form').addEventListener('submit', (e) => {
+    // Either input satisfies the form: files, a URL, or both in one job.
+    const n = picked.length;
+    const url = urlInput.value.trim();
+    const feedback = document.getElementById('upload-feedback');
+    if (!n && !url) {
+      // Silence here read as a dead button — say what is missing instead.
+      e.preventDefault();
+      feedback.classList.remove('hidden');
+      urlInput.focus();
+      return;
+    }
+    feedback.classList.add('hidden');
     // The page navigates away on success, so this state only ever shows during
     // the POST — long enough to stop a second click on a big file.
-    const n = document.getElementById('file-input').files.length;
-    if (!n) return;
     document.getElementById('submit-btn').disabled = true;
-    document.getElementById('btn-label').textContent = n > 1 ? `Uploading ${n} files…` : 'Uploading…';
+    const label = document.getElementById('btn-label');
+    if (n && url)   label.textContent = `Sending ${n + 1} inputs…`;
+    else if (url)   label.textContent = 'Fetching page…';
+    else            label.textContent = n > 1 ? `Uploading ${n} files…` : 'Uploading…';
+  });
+
+  // Returning via the back button restores the page from cache with the
+  // button still disabled — a "broken" upload button that is really stale UI.
+  window.addEventListener('pageshow', () => {
+    document.getElementById('submit-btn').disabled = false;
+    document.getElementById('btn-label').textContent = 'Cleave it';
+    renderFiles();  // bfcache restores DOM but our array is authoritative
   });
 </script>
 {% endblock %}

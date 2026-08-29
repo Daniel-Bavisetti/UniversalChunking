@@ -1,0 +1,9 @@
+{"video_id": "fixture", "config": "fixed_30s", "reference_boundary": 25.48, "predicted_boundary": 30.0, "boundary_error": 4.52, "kind": "visual_only", "tolerance": 5.0}
+{"video_id": "fixture", "config": "fixed_30s", "reference_boundary": 52.8, "predicted_boundary": null, "boundary_error": null, "kind": "semantic_only", "tolerance": 5.0}
+{"video_id": "fixture", "config": "fixed_30s", "reference_boundary": 79.31, "predicted_boundary": null, "boundary_error": null, "kind": "both", "tolerance": 5.0}
+{"video_id": "fixture", "config": "audio_only", "reference_boundary": 25.48, "predicted_boundary": null, "boundary_error": null, "kind": "visual_only", "tolerance": 5.0}
+{"video_id": "fixture", "config": "audio_only", "reference_boundary": 52.8, "predicted_boundary": 52.42, "boundary_error": 0.38, "kind": "semantic_only", "tolerance": 5.0}
+{"video_id": "fixture", "config": "audio_only", "reference_boundary": 79.31, "predicted_boundary": null, "boundary_error": null, "kind": "both", "tolerance": 5.0}
+{"video_id": "fixture", "config": "vke_multimodal", "reference_boundary": 25.48, "predicted_boundary": 25.44, "boundary_error": 0.04, "kind": "visual_only", "tolerance": 5.0}
+{"video_id": "fixture", "config": "vke_multimodal", "reference_boundary": 52.8, "predicted_boundary": 52.42, "boundary_error": 0.38, "kind": "semantic_only", "tolerance": 5.0}
+{"video_id": "fixture", "config": "vke_multimodal", "reference_boundary": 79.31, "predicted_boundary": 81.7, "boundary_error": 2.39, "kind": "both", "tolerance": 5.0}

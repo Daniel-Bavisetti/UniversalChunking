@@ -27,7 +27,12 @@ class ContextGraph:
     def __init__(self, elements: list[ContentElement]):
         self.elements = elements
         self.by_id = {e.id: e for e in elements}
-        self.g = nx.DiGraph()
+        # MultiDiGraph, not DiGraph: two elements can stand in more than one
+        # relation at once, and a caption is very often the element immediately
+        # before its figure. On a DiGraph the later `next` edge overwrote the
+        # `captions` edge on that same pair — silently unlinking exactly the
+        # pair this pipeline exists to keep together.
+        self.g = nx.MultiDiGraph()
         for e in elements:
             self.g.add_node(e.id, kind=e.kind)
         self._build()
@@ -41,7 +46,19 @@ class ContextGraph:
         self._reading_order()
 
     def _add(self, src: str, dst: str, type_: str, confidence: float, evidence: str) -> None:
+        # Parallel edges of *different* types are the point; a repeat of the
+        # same type is not, so it is collapsed rather than accumulated.
+        if self._edge(src, dst, type_) is not None:
+            return
         self.g.add_edge(src, dst, type=type_, confidence=confidence, evidence=evidence)
+
+    def _edge(self, src: str, dst: str, type_: str) -> dict[str, Any] | None:
+        if not self.g.has_edge(src, dst):
+            return None
+        for d in self.g.get_edge_data(src, dst).values():
+            if d["type"] == type_:
+                return d
+        return None
 
     def _hierarchy(self) -> None:
         for e in self.elements:
@@ -102,7 +119,10 @@ class ContextGraph:
                 continue
             for m in _REF_RE.finditer(e.text):
                 target = resolve(m.group(1), int(m.group(2)))
-                if target and target.id != e.id and not self.g.has_edge(e.id, target.id):
+                # Checked per relation type: a reading-order edge between the
+                # same two elements must not suppress a genuine reference.
+                if (target and target.id != e.id
+                        and self._edge(e.id, target.id, "references") is None):
                     self._add(e.id, target.id, "references", 0.9,
                               f"text mentions {m.group(0)!r}")
 

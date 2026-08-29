@@ -1,0 +1,115 @@
+{
+ "exported_at": "2026-08-20T09:00:00Z",
+ "source": "orders-api v2",
+ "count": 12,
+ "orders": [
+  {
+   "id": "SO-1000",
+   "region": "North",
+   "product": "Ember Node",
+   "units": 21,
+   "unit_price_usd": 2281.13,
+   "revenue_usd": 47903.73,
+   "status": "pending"
+  },
+  {
+   "id": "SO-1001",
+   "region": "South",
+   "product": "Delta Probe",
+   "units": 38,
+   "unit_price_usd": 252.24,
+   "revenue_usd": 9585.12,
+   "status": "shipped"
+  },
+  {
+   "id": "SO-1002",
+   "region": "East",
+   "product": "Beacon Relay",
+   "units": 16,
+   "unit_price_usd": 326.83,
+   "revenue_usd": 5229.28,
+   "status": "shipped"
+  },
+  {
+   "id": "SO-1003",
+   "region": "West",
+   "product": "Cirrus Hub",
+   "units": 35,
+   "unit_price_usd": 1094.91,
+   "revenue_usd": 38321.85,
+   "status": "shipped"
+  },
+  {
+   "id": "SO-1004",
+   "region": "North",
+   "product": "Aurora Sensor",
+   "units": 10,
+   "unit_price_usd": 1352.76,
+   "revenue_usd": 13527.6,
+   "status": "pending"
+  },
+  {
+   "id": "SO-1005",
+   "region": "East",
+   "product": "Ember Node",
+   "units": 12,
+   "unit_price_usd": 1713.71,
+   "revenue_usd": 20564.52,
+   "status": "cancelled"
+  },
+  {
+   "id": "SO-1006",
+   "region": "Central",
+   "product": "Cirrus Hub",
+   "units": 32,
+   "unit_price_usd": 1081.47,
+   "revenue_usd": 34607.04,
+   "status": "pending"
+  },
+  {
+   "id": "SO-1007",
+   "region": "West",
+   "product": "Delta Probe",
+   "units": 26,
+   "unit_price_usd": 1011.37,
+   "revenue_usd": 26295.62,
+   "status": "shipped"
+  },
+  {
+   "id": "SO-1008",
+   "region": "South",
+   "product": "Beacon Relay",
+   "units": 15,
+   "unit_price_usd": 1518.16,
+   "revenue_usd": 22772.4,
+   "status": "cancelled"
+  },
+  {
+   "id": "SO-1009",
+   "region": "North",
+   "product": "Delta Probe",
+   "units": 6,
+   "unit_price_usd": 521.78,
+   "revenue_usd": 3130.68,
+   "status": "shipped"
+  },
+  {
+   "id": "SO-1010",
+   "region": "East",
+   "product": "Aurora Sensor",
+   "units": 29,
+   "unit_price_usd": 490.05,
+   "revenue_usd": 14211.45,
+   "status": "shipped"
+  },
+  {
+   "id": "SO-1011",
+   "region": "West",
+   "product": "Ember Node",
+   "units": 9,
+   "unit_price_usd": 1694.33,
+   "revenue_usd": 15248.97,
+   "status": "pending"
+  }
+ ]
+}

@@ -18,7 +18,6 @@ from __future__ import annotations
 import logging
 import os
 from functools import lru_cache
-from pathlib import Path
 from typing import Protocol
 
 import httpx
@@ -37,19 +36,19 @@ OLLAMA_PREFERRED = (
 
 
 def _find_gemini_key() -> str:
-    """Env first, then the sibling projects' .env files."""
-    key = os.environ.get("GEMINI_API_KEY", "")
-    if key:
-        return key
-    for env in (Path.home() / "PycharmProjects/universalOCR/.env",
-                Path.home() / "PycharmProjects/uniflo/.env"):
-        try:
-            for line in env.read_text().splitlines():
-                if line.startswith("GEMINI_API_KEY=") and line.split("=", 1)[1].strip():
-                    return line.split("=", 1)[1].strip()
-        except OSError:
-            continue
-    return ""
+    """The key, from the environment.
+
+    ``cleave/__init__.py`` loads the project's ``.env`` into the environment at
+    import time, so ``cp .env.example .env`` is all the configuration this
+    needs. Nothing reaches outside the project for credentials: a key that
+    lives in another checkout on one developer's machine is a demo that only
+    works there.
+    """
+    return os.environ.get("GEMINI_API_KEY", "").strip()
+
+
+#: An image handed to a provider: (raw bytes, mime type).
+Image = tuple[bytes, str]
 
 
 class LLMProvider(Protocol):
@@ -59,11 +58,20 @@ class LLMProvider(Protocol):
     def is_configured(self) -> bool: ...
 
     def complete_json(self, prompt: str, *, system: str | None = None,
-                      schema: dict | None = None) -> tuple[str, dict]:
+                      schema: dict | None = None,
+                      image: Image | None = None) -> tuple[str, dict]:
         """→ (text, usage). ``text == ""`` means failure.
 
         usage: {model, in_tokens, out_tokens, cached_tokens}.
+
+        ``image`` asks the provider to look at a picture alongside the prompt.
+        A provider whose model cannot see returns ``("", {})`` rather than
+        silently answering about the text alone — a description of an image
+        nobody looked at is the worst possible output here.
         """
+
+    def supports_vision(self) -> bool:
+        """Whether ``image=`` will actually be looked at."""
 
 
 class OllamaProvider:
@@ -111,10 +119,24 @@ class OllamaProvider:
     def _tags(self) -> tuple[str, ...]:
         return self._tags_cached()
 
+    #: Local model families that actually accept images.
+    VISION_FAMILIES = ("llava", "llama3.2-vision", "moondream", "minicpm-v",
+                       "qwen2.5vl", "qwen2-vl", "gemma3", "granite3.2-vision")
+
+    def supports_vision(self) -> bool:
+        return bool(self._model) and any(
+            self._model.lower().startswith(f) for f in self.VISION_FAMILIES)
+
     def complete_json(self, prompt: str, *, system: str | None = None,
-                      schema: dict | None = None) -> tuple[str, dict]:
+                      schema: dict | None = None,
+                      image: Image | None = None) -> tuple[str, dict]:
         if not self._model:
             return "", {}
+        if image is not None and not self.supports_vision():
+            # Answering about the text alone would produce a confident
+            # description of a picture this model never saw.
+            log.info("ollama model %s is text-only — skipping vision request", self._model)
+            return "", {"model": self.model}
         body: dict = {
             "model": self._model,
             "prompt": prompt,
@@ -131,6 +153,10 @@ class OllamaProvider:
             # Ollama constrains decoding to the schema via GBNF, so the reply is
             # valid JSON by construction rather than by asking nicely.
             body["format"] = schema
+        if image is not None:
+            import base64  # noqa: PLC0415
+
+            body["images"] = [base64.b64encode(image[0]).decode("ascii")]
         try:
             r = httpx.post(f"{OLLAMA_URL}/api/generate", json=body, timeout=TIMEOUT_S)
             r.raise_for_status()
@@ -155,7 +181,7 @@ class GeminiProvider:
 
     def __init__(self) -> None:
         self.key = _find_gemini_key()
-        self._model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+        self._model = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
     @property
     def model(self) -> str:
@@ -164,16 +190,32 @@ class GeminiProvider:
     def is_configured(self) -> bool:
         return bool(self.key)
 
+    def supports_vision(self) -> bool:
+        """Every Gemini model this app targets is natively multimodal — the
+        image path costs no extra dependency, model or process."""
+        return self.is_configured()
+
     def complete_json(self, prompt: str, *, system: str | None = None,
-                      schema: dict | None = None) -> tuple[str, dict]:
+                      schema: dict | None = None,
+                      image: Image | None = None) -> tuple[str, dict]:
         if not self.is_configured():
             return "", {}
         gen: dict = {"temperature": 0.2}
         if schema:
             gen["responseMimeType"] = "application/json"
             gen["responseSchema"] = schema
+        parts: list[dict] = [{"text": prompt}]
+        if image is not None:
+            import base64  # noqa: PLC0415
+
+            data, mime = image
+            # Image first: Gemini attends better when the picture precedes the
+            # question about it.
+            parts = [{"inlineData": {"mimeType": mime,
+                                     "data": base64.b64encode(data).decode("ascii")}},
+                     {"text": prompt}]
         body: dict = {
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "contents": [{"role": "user", "parts": parts}],
             "generationConfig": gen,
         }
         if system:
@@ -208,8 +250,12 @@ class NoneProvider:
     def is_configured(self) -> bool:
         return True
 
+    def supports_vision(self) -> bool:
+        return False
+
     def complete_json(self, prompt: str, *, system: str | None = None,
-                      schema: dict | None = None) -> tuple[str, dict]:
+                      schema: dict | None = None,
+                      image: Image | None = None) -> tuple[str, dict]:
         return "", {}
 
 
