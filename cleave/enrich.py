@@ -18,7 +18,7 @@ import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 
-from .llm import get_provider
+from .llm import NoneProvider, get_provider
 from .models import KnowledgeUnit
 from .usage import Ledger
 
@@ -106,9 +106,14 @@ def _apply(units_by_id: dict[str, KnowledgeUnit], payload: str,
 
 
 def enrich(units: list[KnowledgeUnit], document_text: str,
-           progress=None, ledger: Ledger | None = None) -> dict:
-    """Enrich flagged units in place. Returns totals for the job record."""
-    provider = get_provider()
+           progress=None, ledger: Ledger | None = None, use_llm: bool = True) -> dict:
+    """Enrich flagged units in place. Returns totals for the job record.
+
+    ``use_llm=False`` is the per-job UI override: it forces ``NoneProvider``
+    regardless of what ``CLEAVE_LLM``/Ollama/Gemini would otherwise select, so
+    a user can turn summarization off without touching server config.
+    """
+    provider = get_provider() if use_llm else NoneProvider()
     ledger = ledger if ledger is not None else Ledger()
     flagged = [u for u in units if u.decision.escalation_flags]
     totals = {

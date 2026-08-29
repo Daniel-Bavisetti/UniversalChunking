@@ -74,7 +74,14 @@ ollama pull qwen3:4b
 ```
 
 Cleave finds it on the next run. The home page's **Spend** section shows which provider is
-active. To force a choice: `CLEAVE_LLM=none`, `CLEAVE_LLM=ollama`, or `CLEAVE_LLM=gemini`.
+active. To force a choice server-wide: `CLEAVE_LLM=none`, `CLEAVE_LLM=ollama`, or
+`CLEAVE_LLM=gemini`.
+
+The upload form also has a **"Summarize chunks with an LLM"** toggle, on by default. Turning
+it off for a job skips enrichment entirely for that upload — no model call, no cost — while
+routing, chunking and the veto logic run exactly the same. The result page notes when flagged
+chunks stayed at tier 0 because the toggle was off, so it reads the same as "no provider
+configured" rather than looking like a bug.
 
 ### Watching what it costs
 
