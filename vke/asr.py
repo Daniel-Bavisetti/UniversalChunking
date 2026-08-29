@@ -36,7 +36,18 @@ def transcribe(
 
     try:
         model = _load_model(model_name, compute)
-        segments, _info = model.transcribe(str(path), word_timestamps=True)
+        segments, _info = model.transcribe(
+            str(path),
+            word_timestamps=True,
+            # Silence/static with no real speech otherwise gets decoded anyway:
+            # the model falls back to higher sampling temperatures on low-confidence
+            # audio and invents a plausible sentence, a different one each run. VAD
+            # filtering strips non-speech before it ever reaches the decoder, and
+            # disabling conditioning on previous text stops one hallucinated phrase
+            # from being echoed into the next segment.
+            vad_filter=True,
+            condition_on_previous_text=False,
+        )
         utterances = _from_whisper(segments)
         if utterances:
             return utterances, f"faster-whisper:{model_name}"
