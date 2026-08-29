@@ -18,7 +18,6 @@ from __future__ import annotations
 import logging
 import os
 from functools import lru_cache
-from pathlib import Path
 from typing import Protocol
 
 import httpx
@@ -37,19 +36,15 @@ OLLAMA_PREFERRED = (
 
 
 def _find_gemini_key() -> str:
-    """Env first, then the sibling projects' .env files."""
-    key = os.environ.get("GEMINI_API_KEY", "")
-    if key:
-        return key
-    for env in (Path.home() / "PycharmProjects/universalOCR/.env",
-                Path.home() / "PycharmProjects/uniflo/.env"):
-        try:
-            for line in env.read_text().splitlines():
-                if line.startswith("GEMINI_API_KEY=") and line.split("=", 1)[1].strip():
-                    return line.split("=", 1)[1].strip()
-        except OSError:
-            continue
-    return ""
+    """The key, from the environment.
+
+    ``cleave/__init__.py`` loads the project's ``.env`` into the environment at
+    import time, so ``cp .env.example .env`` is all the configuration this
+    needs. Nothing reaches outside the project for credentials: a key that
+    lives in another checkout on one developer's machine is a demo that only
+    works there.
+    """
+    return os.environ.get("GEMINI_API_KEY", "").strip()
 
 
 class LLMProvider(Protocol):
@@ -155,7 +150,7 @@ class GeminiProvider:
 
     def __init__(self) -> None:
         self.key = _find_gemini_key()
-        self._model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+        self._model = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
     @property
     def model(self) -> str:

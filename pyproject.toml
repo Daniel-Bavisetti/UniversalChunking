@@ -16,6 +16,7 @@ dependencies = [
     "sentence-transformers>=3",
     "tiktoken>=0.7",
     "uvicorn>=0.30",
+    "python-dotenv>=1.2.3",
 ]
 
 [dependency-groups]
