@@ -115,6 +115,28 @@ app.mount("/static", StaticFiles(directory=ROOT / "cleave" / "static"), name="st
 templates = Jinja2Templates(directory=ROOT / "cleave" / "templates")
 
 
+def _highlight_scene(text: str) -> "Markup":
+    """Bold the ``Scene: ...`` line inside a video chunk's content.
+
+    A multimodal chunk's content is transcript, then Scene/Actions/Text-on-screen/
+    Visible lines stacked as plain paragraphs (see ingest_video._as_cleave_unit) -
+    without this the visual description reads as just another line of prose.
+    """
+    from markupsafe import Markup, escape  # noqa: PLC0415
+
+    lines = []
+    for line in (text or "").split("\n"):
+        if line.startswith("Scene: "):
+            lines.append(f'<strong class="text-[color:var(--text)]">Scene:</strong>'
+                          f'{escape(line[len("Scene:"):])}')
+        else:
+            lines.append(str(escape(line)))
+    return Markup("\n".join(lines))
+
+
+templates.env.filters["highlight_scene"] = _highlight_scene
+
+
 @dataclass(slots=True)
 class FileState:
     """Live progress of one input within a job, for the per-file list in the

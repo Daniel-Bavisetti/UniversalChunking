@@ -546,16 +546,16 @@
         {% elif u.content|length > 900 %}
         {# long chunk: show a real preview, expand on demand — the preview is
            content, not a link pretending to be one #}
-        <p class="prose-chunk text-[14px] leading-relaxed text-[color:var(--text)] whitespace-pre-line">{{ u.content[:900] }}…</p>
+        <p class="prose-chunk text-[14px] leading-relaxed text-[color:var(--text)] whitespace-pre-line">{{ u.content[:900] | highlight_scene }}…</p>
         <details class="group mt-1">
           <summary class="cursor-pointer text-[11.5px] font-semibold text-[#8fb3ff]">
             <span class="group-open:hidden">Show the full chunk ({{ u.content|length }} characters)</span>
             <span class="hidden group-open:inline">Collapse</span>
           </summary>
-          <p class="prose-chunk mt-2 text-[14px] leading-relaxed text-[color:var(--text)] whitespace-pre-line">{{ u.content[900:] }}</p>
+          <p class="prose-chunk mt-2 text-[14px] leading-relaxed text-[color:var(--text)] whitespace-pre-line">{{ u.content[900:] | highlight_scene }}</p>
         </details>
         {% else %}
-        <p class="prose-chunk text-[14px] leading-relaxed text-[color:var(--text)] whitespace-pre-line">{{ u.content }}</p>
+        <p class="prose-chunk text-[14px] leading-relaxed text-[color:var(--text)] whitespace-pre-line">{{ u.content | highlight_scene }}</p>
         {% endif %}
       </div>
 
