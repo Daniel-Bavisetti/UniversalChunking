@@ -58,10 +58,44 @@ automatically, **preferring a local model** because it costs nothing and keeps y
 documents on your machine:
 
 1. **Local (Ollama)** — used if one is running with a model pulled.
-2. **Gemini API** — used if a `GEMINI_API_KEY` is in your environment, or in the `.env` of
-   the `universalOCR` or `uniflo` projects.
+2. **Gemini API** — used if a `GEMINI_API_KEY` is set.
 3. **Neither** — everything still runs. You see which chunks *would* have benefited,
    flagged but not filled in.
+
+Configuration lives in one place. Copy the template and fill in what you need:
+
+```bash
+cp .env.example .env
+```
+
+`cleave/__init__.py` loads that file before anything reads the environment, so every entry
+point — the web app, `python -m cleave.evaluate`, the tests — sees the same settings. Real
+environment variables win over the file, so `CLEAVE_LLM=none uv run …` still overrides it.
+
+### Checking it actually works
+
+The homepage opens with a **System status** panel, and the server logs the same line at
+startup. It reports either:
+
+```
+LLM Enrichment: Active
+```
+
+or:
+
+```
+LLM Enrichment unavailable — deterministic mode
+```
+
+This is a **live probe**, not a config check: it sends a real schema-constrained request
+through the same code path enrichment uses. That distinction matters — an API key can be
+valid while the model it names has been retired, which returns a 404 only when you actually
+call it. A presence check would report that as healthy; this reports it as down, with the
+reason. Press **re-probe** to re-check without reloading, or query it directly:
+
+```bash
+curl -s localhost:8321/health?refresh=true | python3 -m json.tool
+```
 
 To run locally, once:
 

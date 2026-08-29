@@ -3,6 +3,7 @@
 {% block nav %}
 <nav class="flex items-center gap-1 text-[13px]">
   <a href="#upload" class="rounded-full px-3 py-1.5 font-medium text-[color:var(--muted)] hover:text-white">Upload</a>
+  <a href="#status" class="rounded-full px-3 py-1.5 font-medium text-[color:var(--muted)] hover:text-white">Status</a>
   {% if scorecard %}
   <a href="#scorecard" class="rounded-full px-3 py-1.5 font-medium text-[color:var(--muted)] hover:text-white">Evidence</a>
   {% endif %}
@@ -109,6 +110,11 @@
         {% endfor %}
       </ol>
     </div>
+  </section>
+
+  {# ── system status ── #}
+  <section id="status" class="pb-4">
+    {% include "_system_status.html" %}
   </section>
 
   {# ── scorecard ── #}

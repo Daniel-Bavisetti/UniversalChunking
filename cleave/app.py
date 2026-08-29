@@ -37,9 +37,31 @@ _DOC_EXTS = {".pdf", ".docx", ".pptx", ".xlsx", ".csv", ".html", ".htm", ".md", 
 _AUDIO_EXTS = {".mp3", ".m4a", ".wav", ".aac", ".flac", ".ogg"}
 _CONTRACT_EXTS = {".json"}     # payloads from external modality workers (CONTRACT.md)
 
+def _ensure_logging() -> None:
+    """Cleave's own INFO lines reach the console however the app was started.
+
+    Under `python -m uvicorn` the root logger has no handler, so the startup
+    status line — the thing you most want to see before a demo — would be
+    swallowed. Only this package's logger is touched; uvicorn keeps its own.
+    """
+    pkg = logging.getLogger("cleave")
+    if not pkg.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s: %(message)s"))
+        pkg.addHandler(handler)
+    pkg.setLevel(logging.INFO)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    _ensure_logging()
     _rehydrate_jobs()
+    # Check providers at boot, not on first use: a dead key should be visible
+    # before a job is submitted, not discovered halfway through a demo.
+    from .health import enrichment_banner, system_status  # noqa: PLC0415
+
+    banner = enrichment_banner(system_status(refresh=True))
+    log.info("%s (%s)", banner["text"], banner["detail"])
     yield
 
 
@@ -368,10 +390,14 @@ def index(request: Request):
     sc_path = ROOT / "data" / "scorecard.json"
     if sc_path.exists():
         scorecard = json.loads(sc_path.read_text())
+    from .health import enrichment_banner, system_status  # noqa: PLC0415
+
     jobs = sorted(JOBS.values(), key=lambda j: j.created, reverse=True)[:10]
+    checks = system_status()
     return templates.TemplateResponse(request, "index.html", {
         "jobs": jobs, "scorecard": scorecard,
         "usage": read_cumulative(), "providers": describe_providers(),
+        "checks": checks, "banner": enrichment_banner(checks),
     })
 
 
@@ -526,11 +552,29 @@ def api_usage():
 
 
 @app.get("/health")
-def health():
+def health(refresh: bool = False):
+    """Subsystem status. ``?refresh=true`` re-probes instead of using the cache."""
+    from .health import enrichment_banner, system_status  # noqa: PLC0415
     from .llm import get_provider  # noqa: PLC0415
 
     p = get_provider()
-    return {"ok": True, "jobs": len(JOBS), "llm": p.name, "model": p.model}
+    checks = system_status(refresh=refresh)
+    return {
+        "ok": all(c["ok"] for c in checks if c["key"] != "vision"),
+        "jobs": len(JOBS), "llm": p.name, "model": p.model,
+        "enrichment": enrichment_banner(checks), "checks": checks,
+    }
+
+
+@app.get("/status", response_class=HTMLResponse)
+def status_panel(request: Request, refresh: bool = False):
+    """The status panel on its own, so the UI can re-probe without a reload."""
+    from .health import enrichment_banner, system_status  # noqa: PLC0415
+
+    checks = system_status(refresh=refresh)
+    return templates.TemplateResponse(request, "_system_status.html", {
+        "checks": checks, "banner": enrichment_banner(checks),
+    })
 
 
 if __name__ == "__main__":
