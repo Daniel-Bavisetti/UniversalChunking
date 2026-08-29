@@ -115,8 +115,8 @@ class ChunkingDecision:
     """Why this chunk exists — the receipt shown in the demo. Every unit is
     explainable: strategy, reason, the cuts we refused to make, and cost."""
 
-    strategy: str                          # structural | paragraph_fallback | semantic |
-                                           # temporal | atomic
+    strategy: str                          # structural | hybrid | paragraph_fallback |
+                                           # semantic | temporal | atomic
     reason: str
     signals: dict[str, float] = field(default_factory=dict)
     vetoed_cuts: list[str] = field(default_factory=list)

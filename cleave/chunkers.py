@@ -90,9 +90,9 @@ def chunk(ingest: IngestResult, graph: ContextGraph) -> tuple[list[KnowledgeUnit
                                     new_unit_id, base_provenance, ingest)
     elif profile.route == "temporal":
         text_units = _temporal_units(stream, graph, new_unit_id, base_provenance, ingest.title)
-    elif profile.route == "structural":
+    elif profile.route in ("structural", "hybrid"):
         text_units = _structural_units(stream, graph, new_unit_id, base_provenance,
-                                       ingest.title, profile)
+                                       ingest.title, profile, strategy=profile.route)
     else:
         text_units = _packed_units(stream, graph, new_unit_id, base_provenance,
                                    ingest.title, profile, strategy="paragraph_fallback")
@@ -226,9 +226,13 @@ def _atomic_units(e: ContentElement, captions: list[ContentElement],
 
 # ───────── structural ─────────
 
-def _structural_units(stream, graph, new_unit_id, base_provenance, title, profile):
+def _structural_units(stream, graph, new_unit_id, base_provenance, title, profile,
+                      strategy: str = "structural"):
     """One unit per innermost section; oversized sections split at veto-checked
-    paragraph boundaries, children inheriting the full heading path."""
+    paragraph boundaries, children inheriting the full heading path.
+
+    strategy="hybrid" keeps the same regions and the same vetoes but lets
+    embedding drift pick WHERE an oversized section splits (see _emit_region)."""
     sections: list[list[ContentElement]] = []
     cur: list[ContentElement] = []
     for e in stream:
@@ -244,7 +248,7 @@ def _structural_units(stream, graph, new_unit_id, base_provenance, title, profil
     out = []
     for sec in sections:
         out.extend(_emit_region(sec, graph, new_unit_id, base_provenance, title,
-                                strategy="structural", profile=profile))
+                                strategy=strategy, profile=profile))
     return out
 
 
@@ -283,7 +287,15 @@ def _emit_region(region, graph, new_unit_id, base_provenance, title,
                                   strategy, reason=_whole_reason(reg, strategy, tokens),
                                   vetoed=[], overflow=False, profile=profile))
             continue
-        cut = choose_cut(reg, graph)
+        sims = None
+        if strategy == "hybrid":
+            try:
+                from .semantic import boundary_similarities  # noqa: PLC0415
+
+                sims = boundary_similarities(reg)
+            except Exception:
+                sims = None
+        cut = choose_cut(reg, graph, sims=sims)
         if cut.index is None:
             out.append(_text_unit(reg, graph, new_unit_id, base_provenance, title,
                                   strategy,
@@ -292,17 +304,23 @@ def _emit_region(region, graph, new_unit_id, base_provenance, title,
                                   vetoed=cut.vetoes, overflow=True, profile=profile))
             continue
         left, right = reg[:cut.index], reg[cut.index:]
+        if cut.similarity is not None:
+            reason = (f"section of {tokens} tokens split where the topic drifts "
+                      f"(adjacent similarity {cut.similarity:.2f}) inside the "
+                      f"veto-safe window around {TARGET_TOKENS} tokens")
+        else:
+            reason = (f"section of {tokens} tokens split at the paragraph "
+                      f"boundary nearest {TARGET_TOKENS} tokens")
         out.append(_text_unit(left, graph, new_unit_id, base_provenance, title,
                               strategy,
-                              reason=(f"section of {tokens} tokens split at the paragraph "
-                                      f"boundary nearest {TARGET_TOKENS} tokens"),
+                              reason=reason,
                               vetoed=cut.vetoes, overflow=False, profile=profile))
         queue.insert(0, right)
     return out
 
 
 def _whole_reason(reg, strategy: str, tokens: int) -> str:
-    if strategy == "structural":
+    if strategy in ("structural", "hybrid"):
         head = next((e.text for e in reg if e.kind == "heading"), None)
         if head:
             return f"section {head[:60]!r} is {tokens} tokens — under budget, kept whole"

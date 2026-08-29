@@ -79,11 +79,22 @@ def _route(p: Profile) -> tuple[str, str]:
             "this is a dataset: chunk by row groups, repeat the header, profile the schema"
         )
     if p.heading_count >= 3 and p.heading_density >= 0.03:
-        return "structural", (
+        structural_reason = (
             f"{p.heading_count} headings over {p.text_element_count} text elements "
             f"(density {p.heading_density:.2f}) — document structure is trustworthy, "
             "sections define chunks"
         )
+        try:
+            from .semantic import available  # noqa: PLC0415
+
+            if available():
+                return "hybrid", structural_reason + (
+                    "; oversized sections split where the topic drifts, "
+                    "not just nearest the token target"
+                )
+        except Exception:
+            pass
+        return "structural", structural_reason
     base_reason = (
         f"only {p.heading_count} headings for {p.text_element_count} text elements — "
         "no usable hierarchy"
@@ -100,18 +111,31 @@ def _route(p: Profile) -> tuple[str, str]:
 
 # ───────── cut selection with hard vetoes ─────────
 
+#: How far (in tokens) a semantic cut may stray from the target before token
+#: discipline wins again. Wide enough for drift to matter, narrow enough that
+#: chunk sizes stay predictable.
+SEMANTIC_SLACK_TOKENS = 200
+
+
 @dataclass(slots=True)
 class CutResult:
     index: int | None                 # boundary BEFORE elements[index]; None = keep whole
     vetoes: list[str] = field(default_factory=list)
     overflow: bool = False
+    similarity: float | None = None   # set when embedding drift chose the cut
 
 
 def choose_cut(region: list[ContentElement], graph: ContextGraph,
-               target_tokens: int = TARGET_TOKENS) -> CutResult:
+               target_tokens: int = TARGET_TOKENS,
+               sims: list[float] | None = None) -> CutResult:
     """Pick the paragraph boundary closest to the token target that severs no
     hard relationship. Overflow beats severance: if every candidate is vetoed,
-    the region stays whole and says so."""
+    the region stays whole and says so.
+
+    With ``sims`` (adjacent-element similarity, sims[i-1] for a cut at i), the
+    veto-safe candidates within SEMANTIC_SLACK_TOKENS of the target compete on
+    meaning instead: the cut lands where similarity is lowest — a topic drift —
+    rather than merely nearest the token count. Vetoes stay hard either way."""
     tokens = [count_tokens(e.text) for e in region]
     candidates = list(range(1, len(region)))
     if not candidates:
@@ -122,6 +146,7 @@ def choose_cut(region: list[ContentElement], graph: ContextGraph,
 
     vetoes: list[str] = []
     soft: list[int] = []
+    clean: list[int] = []
     for i in sorted(candidates, key=lambda i: abs(tokens_before(i) - target_tokens)):
         before, after = region[i - 1], region[i]
         # HARD: never strand a heading at the end of a chunk
@@ -140,7 +165,20 @@ def choose_cut(region: list[ContentElement], graph: ContextGraph,
         if before.kind == "list_item" and after.kind == "list_item":
             soft.append(i)
             continue
-        return CutResult(index=i, vetoes=vetoes)
+        clean.append(i)
+        if sims is None:
+            return CutResult(index=i, vetoes=vetoes)
+
+    if clean:
+        nearest = clean[0]  # clean preserves nearest-to-target order
+        window = [i for i in clean
+                  if abs(tokens_before(i) - target_tokens) <= SEMANTIC_SLACK_TOKENS
+                  and 0 <= i - 1 < len(sims)]
+        if window:
+            drift = min(window, key=lambda i: (sims[i - 1],
+                                               abs(tokens_before(i) - target_tokens)))
+            return CutResult(index=drift, vetoes=vetoes, similarity=sims[drift - 1])
+        return CutResult(index=nearest, vetoes=vetoes)
 
     if soft:
         i = min(soft, key=lambda i: abs(tokens_before(i) - target_tokens))

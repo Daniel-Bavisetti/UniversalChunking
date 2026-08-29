@@ -61,3 +61,20 @@ def semantic_groups(stream: list[ContentElement]) -> list[list[ContentElement]] 
         prev = c
     groups.append(stream[prev:])
     return [g for g in groups if g]
+
+
+def boundary_similarities(stream: list[ContentElement]) -> list[float] | None:
+    """Adjacent-element cosine similarity for every internal boundary.
+
+    Index i is the boundary BEFORE stream[i+1] — the same indexing choose_cut
+    uses (a cut at index i separates stream[:i] from stream[i:], so its
+    similarity is sims[i-1]). None when the model is missing or the region is
+    too small for drift to mean anything.
+    """
+    texts = [e.text for e in stream]
+    if len(texts) < 3:
+        return None
+    vecs = embed(texts)
+    if vecs is None:
+        return None
+    return [float(vecs[i] @ vecs[i + 1]) for i in range(len(vecs) - 1)]

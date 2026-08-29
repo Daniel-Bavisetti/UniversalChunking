@@ -56,7 +56,9 @@ def workbook():
 
 def test_structured_document_routes_structural(paper):
     _units, profile = paper
-    assert profile.route == "structural"
+    # hybrid = structural regions + semantic cut selection; which one fires
+    # depends on whether the embedding model is installed
+    assert profile.route in ("structural", "hybrid")
     assert profile.heading_count >= 3
 
 
