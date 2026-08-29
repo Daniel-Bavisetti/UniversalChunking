@@ -1,0 +1,37 @@
+{
+ "contract": 1,
+ "source_uri": "demo_talk.mp4",
+ "title": "Product demo",
+ "elements": [
+  {
+   "id": "s0",
+   "kind": "speech_segment",
+   "text": "Welcome to the walkthrough of the new dashboard.",
+   "t0": 0.0,
+   "t1": 4.2,
+   "speaker": "Presenter",
+   "meta": {
+    "visual_summary": "title slide"
+   }
+  },
+  {
+   "id": "s1",
+   "kind": "speech_segment",
+   "text": "Here on the left you can see the revenue panel updating live.",
+   "t0": 4.2,
+   "t1": 9.8,
+   "speaker": "Presenter",
+   "meta": {
+    "visual_summary": "dashboard with a bar chart"
+   }
+  },
+  {
+   "id": "s2",
+   "kind": "speech_segment",
+   "text": "And that is how the filters compose.",
+   "t0": 10.1,
+   "t1": 13.0,
+   "speaker": "Guest"
+  }
+ ]
+}

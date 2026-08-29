@@ -1,0 +1,36 @@
+[project]
+name = "cleave"
+version = "0.1.0"
+description = "Universal chunking and information extraction — understand information before you cut it"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "docling==2.95.0",
+    "docling-core==2.77.0",
+    "openpyxl>=3.1",
+    "fastapi>=0.115",
+    "httpx>=0.27",
+    "jinja2>=3.1",
+    "networkx>=3",
+    "python-multipart>=0.0.9",
+    "sentence-transformers>=3",
+    "tiktoken>=0.7",
+    "uvicorn>=0.30",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+# Tests import `cleave` from the working tree rather than an installed copy.
+pythonpath = ["."]
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::UserWarning:torch.nn.modules.conv",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

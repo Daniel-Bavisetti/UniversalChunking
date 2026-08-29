@@ -1,0 +1,38 @@
+{
+ "by_model": [
+  {
+   "model": "gemini-2.5-flash",
+   "calls": 4,
+   "in_tokens": 33537,
+   "out_tokens": 4903,
+   "cached_tokens": 0,
+   "cost_usd": 0.022318,
+   "failures": 0,
+   "estimated": false,
+   "local": false,
+   "cache_hit_pct": 0.0
+  },
+  {
+   "model": "ollama/qwen3:4b",
+   "calls": 4,
+   "in_tokens": 8200,
+   "out_tokens": 3222,
+   "cached_tokens": 0,
+   "cost_usd": 0.0,
+   "failures": 0,
+   "estimated": false,
+   "local": true,
+   "cache_hit_pct": 0.0
+  }
+ ],
+ "totals": {
+  "calls": 8,
+  "in_tokens": 41737,
+  "out_tokens": 8125,
+  "cached_tokens": 0,
+  "cost_usd": 0.022318,
+  "local_calls": 4,
+  "paid_calls": 4
+ },
+ "last_job": "75939bc081"
+}

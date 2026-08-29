@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Cleave{% endblock %}</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/static/htmx.min.js"></script>
+<style>
+  /* ── design tokens ──────────────────────────────────────────────────────
+     Deep navy rather than neutral black: the blue cast keeps the accent and
+     the surfaces in one family, which is what makes a dark UI read as
+     designed instead of merely dark. Strategy hues are semantic — each
+     chunking strategy keeps its colour everywhere it appears. */
+  :root {
+    --bg:          #060c1a;
+    --bg-soft:     #0a1224;
+    --surface:     #0d1628;
+    --surface-2:   #131e35;
+    --surface-3:   #1a2743;
+    --line:        rgba(148, 178, 255, .10);
+    --line-strong: rgba(148, 178, 255, .18);
+
+    --text:        #eef2fb;
+    --muted:       #9aa9c7;
+    --faint:       #64748f;
+
+    --brand:       #2f6bff;
+    --brand-hi:    #4d82ff;
+    --brand-soft:  rgba(47, 107, 255, .14);
+
+    --ok:          #34d399;
+    --warn:        #fbbf24;
+    --alert:       #fb7185;
+
+    --shadow:      0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+    --shadow-lg:   0 2px 4px rgba(0,0,0,.3), 0 24px 48px -24px rgba(0,0,0,.8);
+  }
+
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+  body {
+    background:
+      radial-gradient(1100px 620px at 78% -12%, rgba(47,107,255,.15), transparent 62%),
+      radial-gradient(820px 520px at 4% 4%, rgba(80,160,255,.07), transparent 58%),
+      var(--bg);
+    background-attachment: fixed;
+    color: var(--text);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-feature-settings: "cv02","cv03","cv04","cv11","ss01";
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: rgba(47,107,255,.32); }
+
+  h1, h2, .display { letter-spacing: -.028em; }
+  .stat { font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+  code, pre, .mono { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  ::-webkit-scrollbar { width: 11px; height: 11px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--surface-3); border-radius: 99px; border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: #24365c; background-clip: content-box; }
+
+  /* ── components ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+  }
+  .card-quiet { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 14px; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: .6rem;
+    border-radius: 999px; padding: .68rem 1.05rem .68rem 1.3rem;
+    font-size: .875rem; font-weight: 600; letter-spacing: -.01em;
+    background: var(--brand); color: #fff; border: 1px solid transparent;
+    transition: background .15s ease, transform .15s ease, box-shadow .15s ease;
+    box-shadow: 0 1px 0 rgba(255,255,255,.12) inset, 0 8px 22px -12px var(--brand);
+  }
+  .btn:hover { background: var(--brand-hi); transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+  .btn-arrow {
+    display: grid; place-items: center;
+    width: 1.4rem; height: 1.4rem; border-radius: 999px;
+    background: rgba(255,255,255,.18);
+  }
+  .btn-ghost {
+    display: inline-flex; align-items: center; gap: .45rem;
+    border-radius: 999px; padding: .5rem .95rem;
+    font-size: .8125rem; font-weight: 500;
+    color: var(--muted); border: 1px solid var(--line);
+    background: var(--surface-2); transition: all .15s ease;
+  }
+  .btn-ghost:hover { color: var(--text); border-color: var(--line-strong); background: var(--surface-3); }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: .3rem;
+    border-radius: 999px; border: 1px solid; padding: .16rem .6rem;
+    font-size: 11px; font-weight: 600; line-height: 1.55; white-space: nowrap;
+  }
+  .chip-neutral { border-color: var(--line); background: var(--surface-2); color: var(--muted); }
+
+  .field {
+    width: 100%; border-radius: 12px; padding: .72rem .9rem;
+    background: var(--bg); border: 1px solid var(--line-strong); color: var(--text);
+    font-size: .875rem; transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  .field::placeholder { color: var(--faint); }
+  .field:focus { outline: none; border-color: var(--brand);
+                 box-shadow: 0 0 0 3px var(--brand-soft); }
+
+  .label { font-size: 10px; font-weight: 700; letter-spacing: .09em;
+           text-transform: uppercase; color: var(--faint); }
+
+  .unit { scroll-margin-top: 96px; }
+  .unit:target { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+
+  .datatable {
+    font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    font-size: 11.5px; border-collapse: collapse; width: max-content; min-width: 100%;
+  }
+  .datatable th, .datatable td { border: 1px solid var(--line); padding: 5px 10px;
+                                 text-align: left; white-space: nowrap; }
+  .datatable th { background: var(--surface-3); color: #93b8ff; position: sticky; top: 0;
+                  font-weight: 600; letter-spacing: .01em; }
+  .datatable tr:nth-child(even) td { background: rgba(255,255,255,.018); }
+
+  .prose-chunk { white-space: pre-wrap; word-break: break-word; }
+  details > summary { list-style: none; }
+  details > summary::-webkit-details-marker { display: none; }
+
+  .htmx-indicator { opacity: 0; transition: opacity .2s; }
+  .htmx-request .htmx-indicator, .htmx-request.htmx-indicator { opacity: 1; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<header class="sticky top-0 z-40 border-b border-[color:var(--line)]
+               bg-[color:var(--bg)]/80 backdrop-blur-xl">
+  <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3.5">
+    <a href="/" class="flex items-center gap-2.5">
+      <svg viewBox="0 0 32 32" class="h-7 w-7"><rect width="32" height="32" rx="8" fill="#2f6bff"/><path d="M16 6v20" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/><path d="M10.5 11.5h-4M10.5 20.5h-4M21.5 11.5h4M21.5 20.5h4" stroke="#bcd2ff" stroke-width="2.5" stroke-linecap="round"/></svg>
+      <span class="text-[15px] font-bold tracking-tight text-white">Cleave</span>
+    </a>
+    {% block nav %}{% endblock %}
+  </div>
+</header>
+
+{% block body %}{% endblock %}
+
+</body>
+</html>

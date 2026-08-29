@@ -1,0 +1,450 @@
+{% set chip = {
+  "structural":         "border-blue-400/30 bg-blue-500/10 text-blue-300",
+  "atomic":             "border-amber-400/30 bg-amber-500/10 text-amber-300",
+  "tabular":            "border-teal-400/30 bg-teal-500/10 text-teal-300",
+  "semantic":           "border-violet-400/30 bg-violet-500/10 text-violet-300",
+  "paragraph_fallback": "border-slate-400/25 bg-slate-500/10 text-slate-300",
+  "temporal":           "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
+  "imported":           "border-fuchsia-400/30 bg-fuchsia-500/10 text-fuchsia-300",
+} %}
+{% set strategies = units | map(attribute='decision.strategy') | list %}
+<div>
+
+  {# ── totals ── #}
+  <div class="grid grid-cols-3 gap-2.5 sm:grid-cols-6">
+    {% for label, value, tone in [
+      ("units",          totals.units,                            "text-white"),
+      ("no AI",          totals.tier0_pct ~ "%",                  "text-teal-300"),
+      ("needed context", totals.flagged_for_enrichment,           "text-rose-300"),
+      ("model calls",    totals.llm_calls,                        "text-white"),
+      ("cost",           "$" ~ "%.4f" | format(totals.cost_usd),  "text-[#8fb3ff]"),
+      ("wall clock",     totals.wall_clock_s ~ "s",               "text-white"),
+    ] %}
+    <div class="card-quiet px-3 py-3.5 text-center">
+      <div class="stat text-[1.35rem] font-bold leading-none {{ tone }}">{{ value }}</div>
+      <div class="label mt-1.5 !text-[9.5px]">{{ label }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {# ── routing decision ── #}
+  <section class="card mt-4 border-[color:var(--brand)]/35 p-5"
+           style="background:linear-gradient(180deg,rgba(47,107,255,.09),transparent 65%),var(--surface)">
+    <div class="flex flex-wrap items-center gap-2.5">
+      <span class="label !text-[#8fb3ff]">Routing decision</span>
+      <span class="chip {{ chip.get(profile.route, chip['paragraph_fallback']) }}">{{ profile.route }}</span>
+    </div>
+    <p class="mt-2.5 text-[14.5px] leading-relaxed text-[color:var(--text)]">{{ profile.route_reason }}</p>
+    <div class="mt-3.5 flex flex-wrap gap-1.5">
+      {% for k, v in [
+        ("headings", profile.heading_count), ("density", profile.heading_density),
+        ("tables", profile.table_count), ("figures", profile.figure_count),
+        ("captions", profile.caption_count), ("rows", profile.row_count),
+        ("columns", profile.column_count), ("tokens", profile.total_tokens)] %}
+      {% if v %}
+      <span class="rounded-lg border border-[color:var(--line)] bg-[color:var(--bg-soft)]
+                   px-2.5 py-1 text-[11.5px] text-[color:var(--faint)]">
+        {{ k }} <span class="stat font-semibold text-[color:var(--text)]">{{ v }}</span></span>
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% if totals.warnings %}
+    <ul class="mt-3 space-y-1">
+      {% for w in totals.warnings %}
+      <li class="text-[11.5px] text-amber-300/85">⚠ {{ w }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+
+  {# ── cleaning ── #}
+  {% if cleaning and cleaning.total_fixes %}
+  <section class="card mt-4 p-5">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <span class="label">Cleaned before chunking</span>
+      <span class="text-[11.5px] text-[color:var(--muted)]">
+        <span class="stat font-semibold text-white">{{ "{:,}".format(cleaning.total_fixes) }}</span>
+        fixes across {{ cleaning.elements_changed }} elements ·
+        {{ "{:,}".format(cleaning.chars_removed) }} characters of noise removed
+      </span>
+    </div>
+    <p class="mt-2 text-[12.5px] leading-relaxed text-[color:var(--muted)]">
+      Extraction debris is removed before anything is measured or split, so token counts,
+      boundaries and embeddings all describe the real text. Nothing that changes meaning is
+      touched — no lowercasing, no stopword stripping.
+    </p>
+    <div class="mt-3 flex flex-wrap gap-1.5">
+      {% for rule, n in cleaning.by_rule.items() %}
+      <span class="rounded-lg border border-[color:var(--line)] bg-[color:var(--bg-soft)]
+                   px-2.5 py-1 text-[11.5px] text-[color:var(--faint)]">
+        {{ rule.replace("_", " ") }}
+        <span class="stat font-semibold text-[color:var(--text)]">{{ "{:,}".format(n) }}</span></span>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {# ── model spend ── #}
+  {% if usage and usage.by_model %}
+  <section class="card mt-4 p-5">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <span class="label">Model usage</span>
+      {% if enrichment and enrichment.calls_saved_by_batching %}
+      <span class="text-[11.5px] text-[color:var(--muted)]">
+        {{ enrichment.enriched }} chunks enriched in
+        <span class="font-semibold text-teal-300">{{ enrichment.api_calls }}</span> call(s) —
+        batching avoided {{ enrichment.calls_saved_by_batching }} document re-sends
+      </span>
+      {% endif %}
+    </div>
+
+    <div class="mt-3.5 overflow-x-auto">
+      <table class="w-full text-[12px]">
+        <thead>
+          <tr class="text-left text-[color:var(--faint)]">
+            {% for h in ["model", "calls", "in", "cached", "out", "cost"] %}
+            <th class="pb-2 pr-4 font-medium {{ 'text-right' if not loop.first }}">{{ h }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in usage.by_model %}
+          <tr class="border-t border-[color:var(--line)]">
+            <td class="py-2 pr-4">
+              <span class="mono text-[color:var(--text)]">{{ m.model }}</span>
+              {% if m.local %}
+              <span class="chip ml-1.5 border-teal-400/30 bg-teal-500/10 text-teal-300">local · free</span>
+              {% elif m.estimated %}
+              <span class="chip ml-1.5 border-amber-400/30 bg-amber-500/10 text-amber-300">est. rate</span>
+              {% endif %}
+            </td>
+            <td class="stat py-2 pr-4 text-right text-[color:var(--muted)]">{{ m.calls }}</td>
+            <td class="stat py-2 pr-4 text-right text-[color:var(--muted)]">{{ "{:,}".format(m.in_tokens) }}</td>
+            <td class="stat py-2 pr-4 text-right text-[color:var(--faint)]">
+              {{ "{:,}".format(m.cached_tokens) if m.cached_tokens else "—" }}</td>
+            <td class="stat py-2 pr-4 text-right text-[color:var(--muted)]">{{ "{:,}".format(m.out_tokens) }}</td>
+            <td class="stat py-2 text-right font-semibold {{ 'text-teal-300' if m.local else 'text-[#8fb3ff]' }}">
+              {{ "free" if m.local else "$%.5f" | format(m.cost_usd) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="border-t border-[color:var(--line-strong)]">
+            <td class="pt-2 pr-4 text-[color:var(--faint)]">total</td>
+            <td class="stat pt-2 pr-4 text-right text-[color:var(--text)]">{{ usage.totals.calls }}</td>
+            <td class="stat pt-2 pr-4 text-right text-[color:var(--text)]">{{ "{:,}".format(usage.totals.in_tokens) }}</td>
+            <td class="stat pt-2 pr-4 text-right text-[color:var(--faint)]">
+              {{ "{:,}".format(usage.totals.cached_tokens) if usage.totals.cached_tokens else "—" }}</td>
+            <td class="stat pt-2 pr-4 text-right text-[color:var(--text)]">{{ "{:,}".format(usage.totals.out_tokens) }}</td>
+            <td class="stat pt-2 text-right font-bold text-white">${{ "%.5f" | format(usage.totals.cost_usd) }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+  {# ── search ── #}
+  <form hx-post="/jobs/{{ job.id }}/query" hx-target="#query-results" hx-swap="outerHTML"
+        class="card mt-4 p-3.5">
+    <div class="flex flex-col gap-2.5 sm:flex-row">
+      <div class="relative flex-1">
+        <input name="q" autocomplete="off" class="field pr-10"
+               placeholder="Ask this file something — ranked over each unit's embed_text()">
+        <svg class="htmx-indicator absolute right-3.5 top-3 h-4 w-4 animate-spin text-[color:var(--brand-hi)]"
+             viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity=".18"/>
+          <path d="M22 12a10 10 0 00-10-10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+      </div>
+      <button class="btn shrink-0 justify-center">Search
+        <span class="btn-arrow"><svg viewBox="0 0 16 16" class="h-3 w-3" fill="none"
+          stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 8h9M8.5 4.5L12 8l-3.5 3.5"/></svg></span>
+      </button>
+    </div>
+    <div id="query-results"></div>
+  </form>
+
+  {# ── graph ── #}
+  {% if graph and graph.edges %}
+  <section class="card mt-4 p-5">
+    <details>
+      <summary class="flex cursor-pointer items-center justify-between gap-3">
+        <div>
+          <span class="label">Context graph</span>
+          <span class="ml-2 text-[12.5px] text-[color:var(--muted)]">
+            {{ graph.nodes | length }} elements · {{ graph.edges | length }} relationships
+          </span>
+        </div>
+        <span class="btn-ghost !py-1 !text-[11.5px]">view</span>
+      </summary>
+      <p class="mt-3.5 max-w-3xl text-[12.5px] leading-relaxed text-[color:var(--muted)]">
+        Every element in reading order, left to right. Each arc is a relationship the chunker had
+        to respect — cutting where an arc lands would have separated things that explain each
+        other. Hover any arc for the evidence behind it.
+      </p>
+      <div class="mt-3 overflow-x-auto rounded-xl border border-[color:var(--line)] bg-[color:var(--bg)] p-2">
+        <svg id="arc" width="100%" height="190" style="min-width:640px"></svg>
+      </div>
+      <div class="mt-2.5 flex flex-wrap gap-3.5 text-[11px] text-[color:var(--faint)]">
+        {% for t, c in [("captions","#fbbf24"),("references","#4d82ff"),
+                        ("has_schema","#2dd4bf"),("hierarchy","#3d4a68")] %}
+        <span class="flex items-center gap-1.5">
+          <span class="inline-block h-0.5 w-5 rounded" style="background:{{ c }}"></span>{{ t }}</span>
+        {% endfor %}
+      </div>
+      <script id="graph-data" type="application/json">{{ graph | tojson }}</script>
+    </details>
+  </section>
+  {% endif %}
+
+  {# ── filters ── #}
+  <div class="mt-9 flex flex-wrap items-end justify-between gap-3">
+    <div>
+      <div class="label">Knowledge units</div>
+      {% if title %}
+      <div class="mt-1 text-[15px] font-semibold text-white">{{ title }}</div>
+      {% endif %}
+    </div>
+    <div class="flex flex-wrap gap-1.5">
+      {% for label, href in [("units.json", "/api/jobs/" ~ job.id ~ "/units"),
+                             ("graph.json", "/api/jobs/" ~ job.id ~ "/graph"),
+                             ("profile.json", "/api/jobs/" ~ job.id ~ "/profile")] %}
+      <a href="{{ href }}" target="_blank" rel="noopener" class="btn-ghost !py-1 mono !text-[11px]">{{ label }}</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="mt-3 flex flex-wrap gap-1.5">
+    <button data-filter="all" class="filter-btn chip is-on">all {{ units | length }}</button>
+    {% for s in strategies | unique | sort %}
+    <button data-filter="strategy:{{ s }}" class="filter-btn chip">
+      {{ s }} {{ strategies | select("equalto", s) | list | length }}</button>
+    {% endfor %}
+    {% set flagged = units | selectattr('decision.escalation_flags') | list | length %}
+    {% if flagged %}
+    <button data-filter="flagged" class="filter-btn chip">needed context {{ flagged }}</button>
+    {% endif %}
+    {% set vetoed = units | selectattr('decision.vetoed_cuts') | list | length %}
+    {% if vetoed %}
+    <button data-filter="vetoed" class="filter-btn chip">vetoed cuts {{ vetoed }}</button>
+    {% endif %}
+  </div>
+
+  {# ── units ── #}
+  <div class="mt-3 space-y-3 pb-20" id="unit-list">
+    {% for u in units %}
+    {% set kind = u.metadata.get("element_kind") %}
+    <article class="unit card p-5 transition-colors"
+             id="{{ u.id }}"
+             data-strategy="{{ u.decision.strategy }}"
+             data-flagged="{{ 1 if u.decision.escalation_flags else 0 }}"
+             data-vetoed="{{ 1 if u.decision.vetoed_cuts else 0 }}">
+
+      <div class="flex flex-wrap items-center gap-2 text-[11.5px]">
+        <a href="#{{ u.id }}" class="mono text-[color:var(--faint)] hover:text-[#8fb3ff]">{{ u.id }}</a>
+        <span class="chip {{ chip.get(u.decision.strategy, chip['paragraph_fallback']) }}">{{ u.decision.strategy }}</span>
+        <span class="stat text-[color:var(--faint)]">{{ u.token_count }} tok</span>
+        {% if u.provenance.page %}<span class="text-[color:var(--faint)]">p.{{ u.provenance.page }}</span>{% endif %}
+        {% if kind == "schema_card" %}
+        <span class="chip border-teal-400/30 bg-teal-500/10 text-teal-300">schema card</span>
+        {% elif kind == "row_group" %}
+        <span class="stat text-[color:var(--faint)]">rows {{ u.metadata.first_row }}–{{ u.metadata.last_row }}</span>
+        {% endif %}
+        {% if u.temporal %}
+        <span class="stat text-emerald-300">
+          {{ "%.1f"|format(u.temporal.start_s) }}–{{ "%.1f"|format(u.temporal.end_s) }}s</span>
+        {% if u.temporal.speaker %}
+        <span class="chip border-emerald-400/30 bg-emerald-500/10 text-emerald-300">{{ u.temporal.speaker }}</span>
+        {% endif %}
+        {% endif %}
+        <span class="ml-auto">
+          {% if u.context.situating_summary %}
+          <span class="chip border-emerald-400/30 bg-emerald-500/10 text-emerald-300">enriched · tier {{ u.context.tier }}</span>
+          {% elif u.decision.escalation_flags %}
+          <span class="chip border-rose-400/30 bg-rose-500/10 text-rose-300">needs context</span>
+          {% else %}
+          <span class="chip chip-neutral">tier 0 · no AI</span>
+          {% endif %}
+        </span>
+      </div>
+
+      {% if u.context.heading_path %}
+      <div class="mt-3 truncate text-[12.5px] font-medium text-[#8fb3ff]">
+        {{ u.context.heading_path | join(" › ") }}</div>
+      {% endif %}
+
+      {% if u.context.situating_summary %}
+      <div class="mt-3 rounded-xl border border-emerald-400/25 bg-emerald-500/[.07] px-3.5 py-2.5">
+        <span class="label !text-emerald-400/90">situating context</span>
+        <p class="mt-1 text-[12.5px] leading-relaxed text-emerald-100/90">{{ u.context.situating_summary }}</p>
+      </div>
+      {% endif %}
+
+      {% if u.context.leading %}
+      <p class="mt-3 border-l-2 border-[color:var(--surface-3)] pl-3 text-[11.5px] italic
+                leading-relaxed text-[color:var(--faint)]">…{{ u.context.leading }}</p>
+      {% endif %}
+
+      <div class="mt-3">
+        {% if kind == "row_group" %}
+        <div class="max-h-80 overflow-auto rounded-xl border border-[color:var(--line)]">
+          <table class="datatable">
+            {% for line in u.content.split("\n") %}
+            {% if loop.index == 1 %}
+            <thead><tr>{% for c in line.strip("|").split("|") %}<th>{{ c.strip() }}</th>{% endfor %}</tr></thead><tbody>
+            {% elif loop.index > 2 %}
+            <tr>{% for c in line.strip("|").split("|") %}<td>{{ c.strip() }}</td>{% endfor %}</tr>
+            {% endif %}
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% elif kind == "schema_card" %}
+        <pre class="prose-chunk mono overflow-x-auto rounded-xl border border-[color:var(--line)]
+                    bg-[color:var(--bg)] p-3.5 text-[11.5px] leading-[1.75] text-[color:var(--text)]">{{ u.content }}</pre>
+        {% else %}
+        <details class="group">
+          <summary class="cursor-pointer text-[14px] leading-relaxed text-[color:var(--text)]">
+            <span class="prose-chunk group-open:hidden">{{ u.content[:300] }}{% if u.content|length > 300 %}<span class="text-[color:var(--faint)]"> … {{ u.content|length - 300 }} more</span>{% endif %}</span>
+            <span class="hidden text-[11.5px] text-[color:var(--faint)] group-open:inline">▾ collapse</span>
+          </summary>
+          <p class="prose-chunk mt-2 text-[14px] leading-relaxed text-[color:var(--text)]">{{ u.content }}</p>
+        </details>
+        {% endif %}
+      </div>
+
+      {% if u.context.trailing %}
+      <p class="mt-3 border-l-2 border-[color:var(--surface-3)] pl-3 text-[11.5px] italic
+                leading-relaxed text-[color:var(--faint)]">{{ u.context.trailing }}…</p>
+      {% endif %}
+
+      {% if u.entities %}
+      <div class="mt-3 flex flex-wrap gap-1.5">
+        {% for e in u.entities %}
+        <span class="rounded-md border border-[color:var(--line)] bg-[color:var(--bg-soft)]
+                     px-2 py-0.5 text-[10.5px] text-[color:var(--muted)]">{{ e }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% set rels = u.relationships | rejectattr('type', 'in', ['next','previous']) | list %}
+      {% if rels %}
+      <div class="mt-3 flex flex-wrap gap-1.5">
+        {% for r in rels[:12] %}
+        <a href="#{{ r.target_id }}"
+           class="rounded-lg border border-[color:var(--line)] bg-[color:var(--bg-soft)] px-2.5 py-1
+                  text-[11px] text-[color:var(--muted)] transition
+                  hover:border-[color:var(--brand)]/50 hover:text-[color:var(--text)]">
+          <span class="font-medium">{{ r.type }}</span>
+          <span class="mono text-[#8fb3ff]">{{ r.target_id }}</span>
+          {% if r.evidence %}<span class="text-[color:var(--faint)]"> · {{ r.evidence }}</span>{% endif %}
+        </a>
+        {% endfor %}
+        {% if rels | length > 12 %}
+        <span class="px-2 py-1 text-[11px] text-[color:var(--faint)]">+{{ rels|length - 12 }} more</span>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <div class="card-quiet mt-3.5 px-3.5 py-3">
+        <div class="label">Why this chunk exists</div>
+        <p class="mt-1.5 text-[12.5px] leading-relaxed text-[color:var(--text)]">{{ u.decision.reason }}</p>
+        {% for v in u.decision.vetoed_cuts %}
+        <p class="mt-1.5 flex gap-1.5 text-[12px] leading-relaxed text-amber-300/90">
+          <span class="font-semibold">veto</span><span>{{ v }}</span></p>
+        {% endfor %}
+        {% for f in u.decision.escalation_flags %}
+        <p class="mt-1.5 flex gap-1.5 text-[12px] leading-relaxed text-rose-300/90">
+          <span class="font-semibold">flag</span><span>{{ f }}</span></p>
+        {% endfor %}
+        {% if u.decision.llm_calls %}
+        <p class="stat mt-2 text-[11px] text-[color:var(--faint)]">
+          {{ u.decision.llm_calls }} model call · ${{ "%.6f" | format(u.decision.cost_usd) }}</p>
+        {% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</div>
+
+<style>
+  .filter-btn { border-color: var(--line); background: var(--surface-2);
+                color: var(--muted); cursor: pointer; transition: all .15s ease; }
+  .filter-btn:hover { border-color: var(--line-strong); color: var(--text); }
+  .filter-btn.is-on { border-color: transparent; background: var(--brand); color: #fff; }
+</style>
+
+<script>
+(() => {
+  // ── filters ──
+  const btns = document.querySelectorAll('.filter-btn');
+  const cards = document.querySelectorAll('#unit-list .unit');
+  btns.forEach(b => b.addEventListener('click', () => {
+    btns.forEach(o => o.classList.remove('is-on'));
+    b.classList.add('is-on');
+    const f = b.dataset.filter;
+    cards.forEach(c => {
+      const show = f === 'all'
+        || (f === 'flagged' && c.dataset.flagged === '1')
+        || (f === 'vetoed'  && c.dataset.vetoed === '1')
+        || (f.startsWith('strategy:') && c.dataset.strategy === f.slice(9));
+      c.style.display = show ? '' : 'none';
+    });
+  }));
+
+  // ── arc diagram ──
+  const data = document.getElementById('graph-data');
+  const svg = document.getElementById('arc');
+  if (!data || !svg) return;
+  const g = JSON.parse(data.textContent);
+  const COLOR = {captions:'#fbbf24', captioned_by:'#fbbf24', references:'#4d82ff',
+                 has_schema:'#2dd4bf', schema_of:'#2dd4bf', parent:'#3d4a68'};
+  const KIND = {heading:'#4d82ff', table:'#2dd4bf', figure:'#fbbf24', caption:'#f59e0b',
+                speech_segment:'#34d399'};
+  const idx = new Map(g.nodes.map((n, i) => [n.id, i]));
+  const W = Math.max(640, g.nodes.length * 9), H = 190, BASE = 150, PAD = 16;
+  const x = i => PAD + (i * (W - 2 * PAD)) / Math.max(1, g.nodes.length - 1);
+  const ns = 'http://www.w3.org/2000/svg';
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('style', `min-width:${W}px`);
+
+  const axis = document.createElementNS(ns, 'line');
+  axis.setAttribute('x1', PAD); axis.setAttribute('x2', W - PAD);
+  axis.setAttribute('y1', BASE); axis.setAttribute('y2', BASE);
+  axis.setAttribute('stroke', '#1a2743'); axis.setAttribute('stroke-width', 1);
+  svg.appendChild(axis);
+
+  for (const e of g.edges) {                     // arcs first so nodes sit on top
+    if (e.type === 'next' || e.type === 'previous') continue;
+    const a = idx.get(e.source), b = idx.get(e.target);
+    if (a === undefined || b === undefined) continue;
+    const x1 = x(a), x2 = x(b), r = Math.abs(x2 - x1) / 2;
+    const h = Math.min(BASE - 14, Math.max(14, r * 0.85));
+    const p = document.createElementNS(ns, 'path');
+    p.setAttribute('d', `M ${x1} ${BASE} A ${r} ${h} 0 0 ${x2 > x1 ? 1 : 0} ${x2} ${BASE}`);
+    p.setAttribute('fill', 'none');
+    p.setAttribute('stroke', COLOR[e.type] || '#3d4a68');
+    p.setAttribute('stroke-width', e.type === 'parent' ? .6 : 1.4);
+    p.setAttribute('opacity', e.type === 'parent' ? .3 : .8);
+    p.appendChild(Object.assign(document.createElementNS(ns, 'title'),
+      {textContent: `${e.type} (${e.confidence})\n${e.evidence || ''}`}));
+    svg.appendChild(p);
+  }
+  g.nodes.forEach((n, i) => {
+    const c = document.createElementNS(ns, 'circle');
+    c.setAttribute('cx', x(i)); c.setAttribute('cy', BASE);
+    c.setAttribute('r', ['table','figure','heading'].includes(n.kind) ? 3.4 : 2);
+    c.setAttribute('fill', KIND[n.kind] || '#3d4a68');
+    c.appendChild(Object.assign(document.createElementNS(ns, 'title'),
+      {textContent: `${n.id} · ${n.kind}${n.page ? ' · p.' + n.page : ''}\n${n.text}`}));
+    svg.appendChild(c);
+  });
+  const label = document.createElementNS(ns, 'text');
+  label.setAttribute('x', PAD); label.setAttribute('y', BASE + 24);
+  label.setAttribute('fill', '#64748f'); label.setAttribute('font-size', '10');
+  label.setAttribute('font-family', 'Inter, sans-serif');
+  label.textContent = 'reading order →';
+  svg.appendChild(label);
+})();
+</script>

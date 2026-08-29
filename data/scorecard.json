@@ -1,0 +1,57 @@
+{
+ "documents": [
+  "executive_summary.pdf",
+  "attention_paper.pdf"
+ ],
+ "baseline": "fixed 512 tokens / 64 overlap",
+ "fixed": {
+  "cps_pct": 29.5,
+  "metrics": [
+   {
+    "name": "caption integrity",
+    "preserved": 1,
+    "total": 4
+   },
+   {
+    "name": "header integrity",
+    "preserved": 2,
+    "total": 9
+   },
+   {
+    "name": "heading context",
+    "preserved": 55,
+    "total": 99
+   },
+   {
+    "name": "resolved references",
+    "preserved": 2,
+    "total": 13
+   }
+  ]
+ },
+ "cleave": {
+  "cps_pct": 100.0,
+  "metrics": [
+   {
+    "name": "caption integrity",
+    "preserved": 4,
+    "total": 4
+   },
+   {
+    "name": "header integrity",
+    "preserved": 9,
+    "total": 9
+   },
+   {
+    "name": "heading context",
+    "preserved": 99,
+    "total": 99
+   },
+   {
+    "name": "resolved references",
+    "preserved": 13,
+    "total": 13
+   }
+  ]
+ }
+}
