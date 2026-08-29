@@ -80,10 +80,23 @@ templates = Jinja2Templates(directory=ROOT / "cleave" / "templates")
 
 
 @dataclass(slots=True)
+class FileState:
+    """Live progress of one input within a job, for the per-file list in the
+    status view. A nine-file job showing a single opaque line is how a stalled
+    input hides; one row per file is how it doesn't."""
+
+    name: str
+    status: str = "queued"            # queued | running | done | error
+    percent: int = 0
+    message: str = "queued"
+
+
+@dataclass(slots=True)
 class Job:
     id: str
     filename: str                      # display summary, e.g. "3 files (a.pdf, b.mp3, …)"
     filenames: list[str] = field(default_factory=list)
+    files: list[FileState] = field(default_factory=list)
     status: str = "queued"            # queued | running | done | error
     progress: int = 0
     message: str = "queued"
@@ -139,6 +152,8 @@ def _rehydrate_jobs() -> None:
             id=job_id,
             filename=_display_name(names) if names else (meta.get("title") or job_id),
             filenames=names,
+            files=[FileState(name=n, status="done", percent=100, message="done")
+                   for n in names],
             status="done", progress=100, message="done",
             created=profile.stat().st_mtime,
             elapsed_s=meta.get("totals", {}).get("wall_clock_s", 0.0),
@@ -176,21 +191,47 @@ def run_job(job_id: str, input_paths: list[Path | str]) -> None:
         graph_nodes: list = []
         graph_edges: list = []
         enrichments: list[dict] = []
+        failures: list[str] = []
 
         for i, input_path in enumerate(input_paths):
             lo, hi = 5 + int(85 * i / n), 5 + int(85 * (i + 1) / n)
+            fs = job.files[i] if i < len(job.files) else None
+            if fs:
+                fs.status, fs.message = "running", "starting…"
 
-            def progress(frac: float, msg: str, lo=lo, hi=hi) -> None:
+            def progress(frac: float, msg: str, lo=lo, hi=hi, fs=fs) -> None:
                 _set(job, lo + int((hi - lo) * min(1.0, max(0.0, frac))), msg)
+                if fs:
+                    fs.percent = max(fs.percent, int(100 * min(1.0, max(0.0, frac))))
+                    fs.message = msg
 
-            units, file_meta, nodes, edges, enrichment = _process_file(
-                job, input_path, prefix=f"f{i}_", ledger=ledger, progress=progress)
+            # One bad file must not take the other eight with it: the failure is
+            # recorded, shown on its own row, and the job carries on.
+            try:
+                units, file_meta, nodes, edges, enrichment = _process_file(
+                    job, input_path, prefix=f"f{i}_", ledger=ledger, progress=progress)
+            except Exception as exc:
+                reason = f"{type(exc).__name__}: {exc}"
+                log.exception("job %s: input %s failed", job_id, input_path)
+                failures.append(f"{_input_name(input_path)}: {reason}")
+                if fs:
+                    fs.status, fs.percent = "error", 100
+                    fs.message = reason[:200]
+                files_meta.append(_failure_meta(input_path, reason))
+                continue
+
+            if fs:
+                fs.status, fs.percent, fs.message = "done", 100, "done"
             all_units.extend(units)
             files_meta.append(file_meta)
             graph_nodes.extend(nodes)
             graph_edges.extend(edges)
             if enrichment:
                 enrichments.append(enrichment)
+
+        if not all_units and failures:
+            # Nothing survived — that is a failed job, not an empty result.
+            raise RuntimeError("; ".join(failures))
 
         _set(job, 90, f"{len(all_units)} knowledge units — writing artifacts…")
         graph = {"nodes": graph_nodes, "edges": graph_edges} if (graph_nodes or graph_edges) else None
@@ -199,11 +240,30 @@ def run_job(job_id: str, input_paths: list[Path | str]) -> None:
 
         job.elapsed_s = round(time.time() - t0, 1)
         job.progress, job.message, job.status = 100, "done", "done"
+        if failures:
+            job.message = f"done — {len(failures)} input(s) failed"
     except Exception as exc:  # surface honestly; never a silent dead job
         log.exception("job %s failed", job_id)
         job.error = f"{type(exc).__name__}: {exc}"
         job.message = "failed"
         job.status = "error"
+
+
+def _input_name(input_path) -> str:
+    return input_path if isinstance(input_path, str) else Path(input_path).name
+
+
+def _failure_meta(input_path, reason: str) -> dict:
+    """A files_meta entry for an input that failed, so the results page shows
+    the failure alongside the files that worked instead of erasing it."""
+    name = _input_name(input_path)
+    return {
+        "filename": name, "title": None, "source": str(input_path),
+        "error": reason,
+        "warnings": [f"processing failed — {reason}"],
+        "profile": {"route": "failed", "route_reason": reason},
+        "cleaning": None, "figures": None,
+    }
 
 
 def _prefix_element(e, prefix: str) -> None:
@@ -593,6 +653,7 @@ async def create_job(background: BackgroundTasks,
         shutil.rmtree(dest_dir, ignore_errors=True)
         raise
     job = Job(id=job_id, filename=_display_name(names), filenames=names,
+             files=[FileState(name=n) for n in names],
              use_llm=use_llm.lower() not in ("false", "0", "off", "no"))
     JOBS[job_id] = job
     background.add_task(run_job, job_id, dest_paths)

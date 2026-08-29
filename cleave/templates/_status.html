@@ -54,6 +54,57 @@
            style="width:{{ job.progress }}%;background:linear-gradient(90deg,#2f6bff,#6aa0ff)"></div>
     </div>
 
+    {# ── one row per input, so a slow or failed file is visible, not hidden
+          behind the batch. Failures stay on their row; the job carries on. ── #}
+    {% if job.files | length > 1 %}
+    <ol class="mt-5 space-y-1.5">
+      {% for f in job.files %}
+      <li class="card-quiet flex items-center gap-3 px-3.5 py-2.5">
+        <span class="grid h-5 w-5 shrink-0 place-items-center">
+          {% if f.status == "done" %}
+          <span class="grid h-4 w-4 place-items-center rounded-full bg-emerald-500/20">
+            <svg viewBox="0 0 12 12" class="h-2.5 w-2.5 text-emerald-400" fill="none"
+                 stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                 stroke-linejoin="round"><path d="M2.5 6.5L5 9l4.5-5.5"/></svg>
+          </span>
+          {% elif f.status == "error" %}
+          <span class="grid h-4 w-4 place-items-center rounded-full bg-rose-500/20">
+            <svg viewBox="0 0 20 20" class="h-3 w-3 text-rose-400" fill="none"
+                 stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <path d="M10 5.5v5M10 14h.01"/></svg>
+          </span>
+          {% elif f.status == "running" %}
+          <svg class="h-4 w-4 animate-spin text-[color:var(--brand-hi)]" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity=".18"/>
+            <path d="M22 12a10 10 0 00-10-10" stroke="currentColor" stroke-width="3"
+                  stroke-linecap="round"/></svg>
+          {% else %}
+          <span class="h-2 w-2 rounded-full bg-[color:var(--surface-3)]"></span>
+          {% endif %}
+        </span>
+
+        <div class="min-w-0 flex-1">
+          <div class="truncate text-[13px] font-semibold
+                      {{ 'text-rose-300' if f.status == 'error'
+                         else 'text-white' if f.status != 'queued'
+                         else 'text-[color:var(--muted)]' }}">{{ f.name }}</div>
+          <div class="mono truncate text-[11px]
+                      {{ 'text-rose-300/80' if f.status == 'error'
+                         else 'text-[color:var(--faint)]' }}">{{ f.message }}</div>
+        </div>
+
+        <span class="stat shrink-0 text-[11.5px] font-semibold
+                     {{ 'text-rose-400' if f.status == 'error'
+                        else 'text-emerald-400' if f.status == 'done'
+                        else 'text-[color:var(--muted)]' }}">
+          {% if f.status == "error" %}failed{% elif f.status == "done" %}done
+          {%- elif f.status == "queued" %}queued{% else %}{{ f.percent }}%{% endif %}
+        </span>
+      </li>
+      {% endfor %}
+    </ol>
+    {% endif %}
+
     <ol class="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-[11.5px]">
       {% for step, at in [("understand", 5), ("extract", 15), ("graph", 60),
                           ("route &amp; chunk", 70), ("enrich", 78), ("write", 90)] %}
