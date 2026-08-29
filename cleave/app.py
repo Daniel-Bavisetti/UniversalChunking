@@ -149,6 +149,51 @@ class FileState:
     message: str = "queued"
 
 
+#: Stage pills for the status view, per input kind. The threshold is the job
+#: percent at which the stage begins for a single-input job (frac f maps to
+#: 5 + 85*f; video engine stages map through 0.1 + 0.5 * vke_pct/100).
+_PIPELINES: dict[str, list[tuple[str, int]]] = {
+    "document": [("understand", 5), ("parse structure", 13), ("graph", 47),
+                 ("route & chunk", 56), ("enrich", 64), ("write", 90)],
+    "tabular":  [("understand", 5), ("parse table", 13), ("profile & graph", 47),
+                 ("tabular chunk", 56), ("enrich", 64), ("write", 90)],
+    "audio":    [("understand", 5), ("transcribe", 13), ("graph", 47),
+                 ("temporal chunk", 56), ("enrich", 64), ("write", 90)],
+    "video":    [("probe", 5), ("transcribe", 28), ("scenes & frames", 36),
+                 ("objects & OCR", 44), ("boundary chunk", 48),
+                 ("keyframe vision", 53), ("write", 90)],
+    "image":    [("understand", 5), ("OCR & objects", 13), ("graph", 47),
+                 ("route & chunk", 56), ("enrich", 64), ("write", 90)],
+    "web":      [("fetch", 5), ("extract article", 13), ("graph", 47),
+                 ("route & chunk", 56), ("enrich", 64), ("write", 90)],
+    "contract": [("validate", 5), ("import units", 13), ("write", 90)],
+}
+
+#: Batches mix kinds and rescale each file's progress window, so the per-kind
+#: thresholds above would lie — the coarse path is the honest one there.
+_GENERIC_PIPELINE: list[tuple[str, int]] = [
+    ("understand", 5), ("extract", 15), ("graph", 60),
+    ("route & chunk", 70), ("enrich", 78), ("write", 90)]
+
+
+def _input_kind(name: str) -> str:
+    """Which ingest pipeline a filename (or URL) will take."""
+    if name.startswith(("http://", "https://")):
+        return "web"
+    suffix = Path(name).suffix.lower()
+    if suffix in _AUDIO_EXTS:
+        return "audio"
+    if suffix in _VIDEO_EXTS:
+        return "video"
+    if suffix in _IMAGE_EXTS:
+        return "image"
+    if suffix in _CONTRACT_EXTS:
+        return "contract"
+    if suffix in {".csv", ".xlsx"}:
+        return "tabular"
+    return "document"
+
+
 @dataclass(slots=True)
 class Job:
     id: str
@@ -166,6 +211,12 @@ class Job:
     @property
     def is_terminal(self) -> bool:
         return self.status in ("done", "error")
+
+    @property
+    def pipeline(self) -> list[tuple[str, int]]:
+        if len(self.filenames) == 1:
+            return _PIPELINES[_input_kind(self.filenames[0])]
+        return _GENERIC_PIPELINE
 
     @property
     def dir(self) -> Path:

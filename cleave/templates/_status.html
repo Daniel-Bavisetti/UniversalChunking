@@ -106,8 +106,9 @@
     {% endif %}
 
     <ol class="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-[11.5px]">
-      {% for step, at in [("understand", 5), ("extract", 15), ("graph", 60),
-                          ("route &amp; chunk", 70), ("enrich", 78), ("write", 90)] %}
+      {# stage path comes from the job's input kind — a video shows the video
+         engine's stages, audio shows transcription, a CSV shows tabular #}
+      {% for step, at in job.pipeline %}
       {% set done = job.progress > at %}
       {% set active = job.progress >= at and not done %}
       <li class="flex items-center gap-1.5
@@ -120,7 +121,7 @@
             <path d="M2.5 6.5L5 9l4.5-5.5"/></svg>
           {% endif %}
         </span>
-        {{ step | safe }}
+        {{ step }}
       </li>
       {% endfor %}
     </ol>
