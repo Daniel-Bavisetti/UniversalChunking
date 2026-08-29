@@ -82,6 +82,8 @@
           </span>
         </label>
         <input type="hidden" name="use_llm" id="use-llm-field" value="true">
+        <p id="upload-feedback" class="mt-2 hidden px-2 text-[12px] font-medium text-amber-300">
+          Choose at least one file, or paste a URL — then press Cleave it.</p>
       </form>
 
       <p class="mt-3 max-w-xl px-2 text-[12px] leading-relaxed text-[color:var(--faint)]">
@@ -368,11 +370,15 @@
     // Either input satisfies the form: files, a URL, or both in one job.
     const n = document.getElementById('file-input').files.length;
     const url = document.getElementById('url-input').value.trim();
+    const feedback = document.getElementById('upload-feedback');
     if (!n && !url) {
+      // Silence here read as a dead button — say what is missing instead.
       e.preventDefault();
+      feedback.classList.remove('hidden');
       document.getElementById('url-input').focus();
       return;
     }
+    feedback.classList.add('hidden');
     // The page navigates away on success, so this state only ever shows during
     // the POST — long enough to stop a second click on a big file.
     document.getElementById('submit-btn').disabled = true;
@@ -380,6 +386,18 @@
     if (n && url)   label.textContent = `Sending ${n + 1} inputs…`;
     else if (url)   label.textContent = 'Fetching page…';
     else            label.textContent = n > 1 ? `Uploading ${n} files…` : 'Uploading…';
+  });
+
+  // Returning via the back button restores the page from cache with the
+  // button still disabled — a "broken" upload button that is really stale UI.
+  window.addEventListener('pageshow', () => {
+    document.getElementById('submit-btn').disabled = false;
+    document.getElementById('btn-label').textContent = 'Cleave it';
+  });
+
+  // Picking files clears the warning and shows what is queued.
+  document.getElementById('file-input').addEventListener('change', (e) => {
+    document.getElementById('upload-feedback').classList.add('hidden');
   });
 </script>
 {% endblock %}
