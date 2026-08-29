@@ -1,0 +1,19 @@
+{
+  "video": "fixture.mp4",
+  "duration": 104.84,
+  "boundaries": [
+    25.48,
+    52.8,
+    79.31
+  ],
+  "kinds": {
+    "25.48": "visual_only",
+    "52.8": "semantic_only",
+    "79.31": "both"
+  },
+  "notes": {
+    "25.48": "scene colour changes; vocabulary continues -> audio-only must miss it",
+    "52.8": "vocabulary changes; scene identical -> visual-only must miss it",
+    "79.31": "both modalities change -> every config should find it"
+  }
+}
