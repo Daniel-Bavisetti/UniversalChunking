@@ -497,15 +497,22 @@ def _merge_span_meta(span) -> dict:
     """
     meta: dict = {}
     visuals: list[str] = []
+    semantics: list[dict] = []
     for e in span:
         for k, v in e.meta.items():
             if k == "visual_summary":
                 if v and v not in visuals:
                     visuals.append(v)
+            elif k == "semantics":
+                # One turn can ask a question AND assign a task — every
+                # labelled utterance in the span survives, none overwrites.
+                semantics.append(v)
             else:
                 meta[k] = v
     if visuals:
         meta["visual_summary"] = " · ".join(visuals)
+    if semantics:
+        meta["semantics"] = semantics
     return meta
 
 

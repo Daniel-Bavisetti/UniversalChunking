@@ -100,7 +100,9 @@ def ingest_video(path: str | Path, progress=None) -> tuple[IngestResult | None,
              path.name, meta.duration, len(vke_units), VKE_CONFIG)
 
     if BOUNDARY_ENGINE == "vke":
-        return None, [_as_cleave_unit(u, path) for u in vke_units]
+        units = [_as_cleave_unit(u, path) for u in vke_units]
+        _annotate_unit_semantics(units)
+        return None, units
 
     return _as_elements(vke_units, meta, path), []
 
@@ -161,6 +163,10 @@ def _as_elements(vke_units, meta, path: Path) -> IngestResult:
 
     report = clean_elements(elements)
     elements = [e for e in elements if e.text]
+
+    from .meeting import annotate_elements  # noqa: PLC0415
+
+    annotate_elements(elements)
 
     return IngestResult(
         elements=elements,
@@ -236,3 +242,37 @@ def _as_cleave_unit(u, path: Path) -> KnowledgeUnit:
         },
         token_count=count_tokens(content),
     )
+
+
+def _annotate_unit_semantics(units: list[KnowledgeUnit]) -> None:
+    """Meeting semantics for VKE-boundary units.
+
+    These units never pass through the element stream, so the per-utterance
+    annotation cannot reach them. Sentences are classified instead; timestamps
+    fall back to the unit's span, which is the finest anchor that survives
+    VKE's merging.
+    """
+    import re as _re  # noqa: PLC0415
+
+    from .meeting import classify_utterance  # noqa: PLC0415
+
+    sent_split = _re.compile(r"(?<=[.!?])\s+")
+    for u in units:
+        found: list[dict] = []
+        for sent in sent_split.split(u.content):
+            sent = sent.strip()
+            if len(sent) < 8:
+                continue
+            sem = classify_utterance(sent)
+            if sem is None:
+                continue
+            sem.update({
+                "text": sent[:280],
+                "speaker": u.temporal.speaker if u.temporal else None,
+                "timestamp_start": u.temporal.start_s if u.temporal else None,
+                "timestamp_end": u.temporal.end_s if u.temporal else None,
+                "ambiguous": sem["confidence"] < 0.75,
+            })
+            found.append(sem)
+        if found:
+            u.metadata["semantics"] = found

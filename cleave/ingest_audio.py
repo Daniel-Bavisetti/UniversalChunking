@@ -212,6 +212,12 @@ def ingest_audio(path: str | Path) -> IngestResult:
     report = clean_elements(elements)
     elements = [e for e in elements if e.text]
 
+    # Tier-1 meeting semantics: pattern-label questions, decisions and action
+    # items while every utterance still has its own speaker and timestamps.
+    from .meeting import annotate_elements  # noqa: PLC0415
+
+    annotate_elements(elements)
+
     speakers = {e.speaker for e in elements if e.speaker}
     log.info("transcribed %s: %d segments, %d speaker(s) — %s",
              path.name, len(elements), len(speakers), report.summary())

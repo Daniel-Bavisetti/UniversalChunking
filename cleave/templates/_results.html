@@ -10,19 +10,47 @@
   "failed":             "border-rose-400/40 bg-rose-500/10 text-rose-300",
 } %}
 {% set strategies = units | map(attribute='decision.strategy') | list %}
+{% set strategy_label = {
+  "structural":         "by section",
+  "atomic":             "kept whole",
+  "tabular":            "table rows",
+  "semantic":           "by topic",
+  "paragraph_fallback": "by paragraph",
+  "temporal":           "by speaker & time",
+  "imported":           "imported",
+  "multimodal":         "by scene & topic",
+  "failed":             "failed",
+} %}
+{% set strategy_help = {
+  "structural":         "the document has real headings, so sections define the chunks",
+  "atomic":             "a table or figure kept in one piece with its caption",
+  "tabular":            "a dataset: rows grouped with the header repeated in every chunk",
+  "semantic":           "flat prose split where the topic actually shifts",
+  "paragraph_fallback": "flat prose packed at paragraph boundaries",
+  "temporal":           "spoken content split at speaker turns and pauses",
+  "imported":           "produced by an external modality worker",
+  "multimodal":         "video split where scene, speech and topic signals agree",
+  "failed":             "this input could not be processed",
+} %}
 <div>
 
   {# ── totals ── #}
   <div class="grid grid-cols-3 gap-2.5 sm:grid-cols-6">
-    {% for label, value, tone in [
-      ("units",          totals.units,                            "text-white"),
-      ("no AI",          totals.tier0_pct ~ "%",                  "text-teal-300"),
-      ("needed context", totals.flagged_for_enrichment,           "text-rose-300"),
-      ("model calls",    totals.llm_calls,                        "text-white"),
-      ("cost",           "$" ~ "%.4f" | format(totals.cost_usd),  "text-[#8fb3ff]"),
-      ("wall clock",     totals.wall_clock_s ~ "s",               "text-white"),
+    {% for label, value, tone, help in [
+      ("chunks",         totals.units,                            "text-white",
+       "how many knowledge units this job produced"),
+      ("no AI",          totals.tier0_pct ~ "%",                  "text-teal-300",
+       "share of chunks that structure alone explained — no model call, no cost"),
+      ("needed context", totals.flagged_for_enrichment,           "text-rose-300",
+       "chunks whose meaning leans on something outside them — candidates for an AI summary"),
+      ("model calls",    totals.llm_calls,                        "text-white",
+       "how many LLM requests actually ran (batching keeps this small)"),
+      ("cost",           "$" ~ "%.4f" | format(totals.cost_usd),  "text-[#8fb3ff]",
+       "measured from each model's token counts — not an estimate"),
+      ("time",           totals.wall_clock_s ~ "s",               "text-white",
+       "end-to-end processing time"),
     ] %}
-    <div class="card-quiet px-3 py-3.5 text-center">
+    <div class="card-quiet px-3 py-3.5 text-center" title="{{ help }}">
       <div class="stat text-[1.35rem] font-bold leading-none {{ tone }}">{{ value }}</div>
       <div class="label mt-1.5 !text-[9.5px]">{{ label }}</div>
     </div>
@@ -49,7 +77,9 @@
       <div class="rounded-xl border border-[color:var(--line)] bg-[color:var(--bg-soft)] p-3.5">
         <div class="flex flex-wrap items-center gap-2">
           <span class="mono text-[13px] font-semibold text-white">{{ f.filename }}</span>
-          <span class="chip {{ chip.get(f.profile.route, chip['paragraph_fallback']) }}">{{ f.profile.route }}</span>
+          <span class="chip {{ chip.get(f.profile.route, chip['paragraph_fallback']) }}"
+                title="{{ strategy_help.get(f.profile.route, f.profile.route) }}">
+            {{ strategy_label.get(f.profile.route, f.profile.route) }}</span>
         </div>
         {% if f.error %}
         <p class="mono mt-1.5 text-[12px] leading-relaxed text-rose-300/90">{{ f.error }}</p>
@@ -77,7 +107,9 @@
            style="background:linear-gradient(180deg,rgba(47,107,255,.09),transparent 65%),var(--surface)">
     <div class="flex flex-wrap items-center gap-2.5">
       <span class="label !text-[#8fb3ff]">Routing decision</span>
-      <span class="chip {{ chip.get(profile.route, chip['paragraph_fallback']) }}">{{ profile.route }}</span>
+      <span class="chip {{ chip.get(profile.route, chip['paragraph_fallback']) }}"
+            title="{{ strategy_help.get(profile.route, profile.route) }}">
+        {{ strategy_label.get(profile.route, profile.route) }}</span>
     </div>
     <p class="mt-2.5 text-[14.5px] leading-relaxed text-[color:var(--text)]">{{ profile.route_reason }}</p>
     <div class="mt-3.5 flex flex-wrap gap-1.5">
@@ -100,6 +132,61 @@
       {% endfor %}
     </ul>
     {% endif %}
+  </section>
+  {% endif %}
+
+  {# ── meeting minutes: the conversation reduced to its consequences ── #}
+  {% if minutes %}
+  <section class="card mt-4 p-5">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <span class="label">Meeting minutes</span>
+      <span class="text-[11.5px] text-[color:var(--muted)]">
+        found by patterns first, a model only where patterns could not decide</span>
+    </div>
+    <div class="mt-3.5 grid gap-3 lg:grid-cols-3">
+
+      <div class="card-quiet p-3.5">
+        <div class="text-[12px] font-bold text-emerald-300">
+          Decisions <span class="text-[color:var(--faint)]">· {{ minutes.decisions | length }}</span></div>
+        {% for d in minutes.decisions %}
+        <div class="mt-2.5 border-l-2 border-emerald-400/40 pl-2.5">
+          <p class="text-[12px] leading-relaxed text-[color:var(--text)]">{{ d.text }}</p>
+          <p class="mono mt-0.5 text-[10.5px] text-[color:var(--faint)]">
+            {{ d.speaker or "unknown" }}{% if d.timestamp_start is not none %} · {{ "%.0f"|format(d.timestamp_start) }}s{% endif %}
+            · {{ d.method }} · conf {{ "%.2f"|format(d.confidence) }}</p>
+        </div>
+        {% else %}<p class="mt-2 text-[11.5px] text-[color:var(--faint)]">none detected</p>{% endfor %}
+      </div>
+
+      <div class="card-quiet p-3.5">
+        <div class="text-[12px] font-bold text-amber-300">
+          Action items <span class="text-[color:var(--faint)]">· {{ minutes.action_items | length }}</span></div>
+        {% for a in minutes.action_items %}
+        <div class="mt-2.5 border-l-2 border-amber-400/40 pl-2.5">
+          <p class="text-[12px] leading-relaxed text-[color:var(--text)]">{{ a.text }}</p>
+          <p class="mono mt-0.5 text-[10.5px] text-[color:var(--faint)]">
+            {% if a.owner %}owner <span class="text-amber-200">{{ a.owner }}</span> · {% endif %}
+            {% if a.deadline %}due <span class="text-amber-200">{{ a.deadline }}</span> · {% endif %}
+            {{ a.speaker or "unknown" }}{% if a.timestamp_start is not none %} · {{ "%.0f"|format(a.timestamp_start) }}s{% endif %}
+            · conf {{ "%.2f"|format(a.confidence) }}</p>
+        </div>
+        {% else %}<p class="mt-2 text-[11.5px] text-[color:var(--faint)]">none detected</p>{% endfor %}
+      </div>
+
+      <div class="card-quiet p-3.5">
+        <div class="text-[12px] font-bold text-sky-300">
+          Questions <span class="text-[color:var(--faint)]">· {{ minutes.questions | length }}</span></div>
+        {% for q in minutes.questions %}
+        <div class="mt-2.5 border-l-2 border-sky-400/40 pl-2.5">
+          <p class="text-[12px] leading-relaxed text-[color:var(--text)]">{{ q.text }}</p>
+          <p class="mono mt-0.5 text-[10.5px] text-[color:var(--faint)]">
+            {{ q.speaker or "unknown" }}{% if q.timestamp_start is not none %} · {{ "%.0f"|format(q.timestamp_start) }}s{% endif %}
+            · {% if q.answered %}<span class="text-emerald-400">answered</span>{% else %}<span class="text-rose-300">open</span>{% endif %}</p>
+        </div>
+        {% else %}<p class="mt-2 text-[11.5px] text-[color:var(--faint)]">none detected</p>{% endfor %}
+      </div>
+
+    </div>
   </section>
   {% endif %}
 
@@ -219,7 +306,7 @@
     <div class="flex flex-col gap-2.5 sm:flex-row">
       <div class="relative flex-1">
         <input name="q" autocomplete="off" class="field pr-10"
-               placeholder="Ask this job something — ranked over each unit's embed_text()">
+               placeholder="Search these chunks — try a question about the content">
         <svg class="htmx-indicator absolute right-3.5 top-3 h-4 w-4 animate-spin text-[color:var(--brand-hi)]"
              viewBox="0 0 24 24" fill="none">
           <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity=".18"/>
@@ -270,10 +357,15 @@
   {# ── filters ── #}
   <div class="mt-9 flex flex-wrap items-end justify-between gap-3">
     <div>
-      <div class="label">Knowledge units</div>
+      <div class="label">The chunks</div>
       {% if title %}
       <div class="mt-1 text-[15px] font-semibold text-white">{{ title }}</div>
       {% endif %}
+      <p class="mt-1 max-w-2xl text-[12.5px] leading-relaxed text-[color:var(--muted)]">
+        Each card below is one chunk: its content, how it was cut, and why —
+        hover any label for an explanation. The colored chips name the cutting
+        strategy; the receipt at the bottom of a card is the boundary decision.
+      </p>
     </div>
     <div class="flex flex-wrap gap-1.5">
       {% for label, href in [("units.json", "/api/jobs/" ~ job.id ~ "/units"),
@@ -312,8 +404,10 @@
 
       <div class="flex flex-wrap items-center gap-2 text-[11.5px]">
         <a href="#{{ u.id }}" class="mono text-[color:var(--faint)] hover:text-[#8fb3ff]">{{ u.id }}</a>
-        <span class="chip {{ chip.get(u.decision.strategy, chip['paragraph_fallback']) }}">{{ u.decision.strategy }}</span>
-        <span class="stat text-[color:var(--faint)]">{{ u.token_count }} tok</span>
+        <span class="chip {{ chip.get(u.decision.strategy, chip['paragraph_fallback']) }}"
+              title="{{ strategy_help.get(u.decision.strategy, u.decision.strategy) }}">
+          {{ strategy_label.get(u.decision.strategy, u.decision.strategy) }}</span>
+        <span class="stat text-[color:var(--faint)]" title="size of this chunk in tokens">{{ u.token_count }} tok</span>
         {% if u.provenance.page %}<span class="text-[color:var(--faint)]">p.{{ u.provenance.page }}</span>{% endif %}
         {% if kind == "schema_card" %}
         <span class="chip border-teal-400/30 bg-teal-500/10 text-teal-300">schema card</span>
@@ -324,6 +418,14 @@
         <span class="chip border-amber-400/30 bg-amber-500/10 text-amber-300">
           {{ u.metadata.visual_type.replace("_", " ") }}</span>
         {% endif %}
+        {% for stype in u.metadata.get("semantics", []) | map(attribute="type") | unique %}
+        {% if stype != "statement" %}
+        <span class="chip {{ 'border-sky-400/30 bg-sky-500/10 text-sky-300' if stype == 'question'
+                             else 'border-emerald-400/30 bg-emerald-500/10 text-emerald-300' if stype == 'decision'
+                             else 'border-amber-400/30 bg-amber-500/10 text-amber-300' }}">
+          {{ stype.replace("_", " ") }}</span>
+        {% endif %}
+        {% endfor %}
         {% if u.temporal %}
         <span class="stat text-emerald-300">
           {{ "%.1f"|format(u.temporal.start_s) }}–{{ "%.1f"|format(u.temporal.end_s) }}s</span>
@@ -332,12 +434,18 @@
         {% endif %}
         {% endif %}
         <span class="ml-auto">
-          {% if u.context.situating_summary %}
-          <span class="chip border-emerald-400/30 bg-emerald-500/10 text-emerald-300">enriched · tier {{ u.context.tier }}</span>
+          {% if u.context.situating_summary and u.context.tier == 2 %}
+          <span class="chip border-emerald-400/30 bg-emerald-500/10 text-emerald-300"
+                title="an LLM wrote 1–2 sentences situating this chunk in the document">AI context added</span>
+          {% elif u.context.situating_summary %}
+          <span class="chip border-sky-400/30 bg-sky-500/10 text-sky-300"
+                title="a free local model picked this chunk's key sentences — no API call">local gist</span>
           {% elif u.decision.escalation_flags %}
-          <span class="chip border-rose-400/30 bg-rose-500/10 text-rose-300">needs context</span>
+          <span class="chip border-rose-400/30 bg-rose-500/10 text-rose-300"
+                title="this chunk's meaning leans on context outside it; an LLM summary would help">needs context</span>
           {% else %}
-          <span class="chip chip-neutral">tier 0 · no AI</span>
+          <span class="chip chip-neutral"
+                title="structure alone explained this chunk — no model was called, nothing was spent">no AI needed</span>
           {% endif %}
         </span>
       </div>
@@ -435,14 +543,19 @@
         {% elif kind == "schema_card" %}
         <pre class="prose-chunk mono overflow-x-auto rounded-xl border border-[color:var(--line)]
                     bg-[color:var(--bg)] p-3.5 text-[11.5px] leading-[1.75] text-[color:var(--text)]">{{ u.content }}</pre>
-        {% else %}
-        <details class="group">
-          <summary class="cursor-pointer text-[14px] leading-relaxed text-[color:var(--text)]">
-            <span class="prose-chunk group-open:hidden">{{ u.content[:300] }}{% if u.content|length > 300 %}<span class="text-[color:var(--faint)]"> … {{ u.content|length - 300 }} more</span>{% endif %}</span>
-            <span class="hidden text-[11.5px] text-[color:var(--faint)] group-open:inline">▾ collapse</span>
+        {% elif u.content|length > 900 %}
+        {# long chunk: show a real preview, expand on demand — the preview is
+           content, not a link pretending to be one #}
+        <p class="prose-chunk text-[14px] leading-relaxed text-[color:var(--text)] whitespace-pre-line">{{ u.content[:900] }}…</p>
+        <details class="group mt-1">
+          <summary class="cursor-pointer text-[11.5px] font-semibold text-[#8fb3ff]">
+            <span class="group-open:hidden">Show the full chunk ({{ u.content|length }} characters)</span>
+            <span class="hidden group-open:inline">Collapse</span>
           </summary>
-          <p class="prose-chunk mt-2 text-[14px] leading-relaxed text-[color:var(--text)]">{{ u.content }}</p>
+          <p class="prose-chunk mt-2 text-[14px] leading-relaxed text-[color:var(--text)] whitespace-pre-line">{{ u.content[900:] }}</p>
         </details>
+        {% else %}
+        <p class="prose-chunk text-[14px] leading-relaxed text-[color:var(--text)] whitespace-pre-line">{{ u.content }}</p>
         {% endif %}
       </div>
 

@@ -406,6 +406,10 @@ def _process_file(job: Job, input_path: Path | str, *, prefix: str, ledger,
             # VKE's own multimodal boundaries were kept; they arrive finished.
             for u in ready_units:
                 _prefix_unit(u, prefix)
+            from .meeting import collect_unit_semantics, refine_ambiguous  # noqa: PLC0415
+
+            collect_unit_semantics(ready_units)
+            refine_ambiguous(ready_units, use_llm=job.use_llm, ledger=ledger)
             file_meta = {
                 "filename": filename,
                 "title": ready_units[0].context.document_title,
@@ -445,6 +449,12 @@ def _process_file(job: Job, input_path: Path | str, *, prefix: str, ledger,
     units, profile = chunk(ingest, graph)
     for u in units:
         _prefix_unit(u, prefix)
+
+    if any(u.temporal is not None for u in units):
+        from .meeting import collect_unit_semantics, refine_ambiguous  # noqa: PLC0415
+
+        collect_unit_semantics(units)
+        refine_ambiguous(units, use_llm=job.use_llm, ledger=ledger)
 
     enrichment = _maybe_enrich(job, units, ingest, ledger, progress, filename)
 
@@ -584,6 +594,11 @@ def _write_artifacts(job: Job, units, files_meta: list[dict], graph: dict | None
     }
 
     record: dict = {"totals": totals}
+    from .meeting import minutes as _minutes  # noqa: PLC0415
+
+    mins = _minutes(units)
+    if any(mins.values()):
+        record["minutes"] = mins
     combined_figures = _merge_figures([f.get("figures") for f in files_meta])
     if combined_figures:
         record["figures"] = combined_figures
@@ -664,7 +679,7 @@ def job_results(request: Request, job_id: str):
         "totals": meta["totals"], "title": meta.get("title"), "graph": graph,
         "usage": meta.get("usage"), "enrichment": meta.get("enrichment"),
         "cleaning": meta.get("cleaning"), "files": meta.get("files"),
-        "figures": meta.get("figures"),
+        "figures": meta.get("figures"), "minutes": meta.get("minutes"),
     })
 
 
