@@ -6,6 +6,7 @@
   "paragraph_fallback": "border-slate-400/25 bg-slate-500/10 text-slate-300",
   "temporal":           "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
   "imported":           "border-fuchsia-400/30 bg-fuchsia-500/10 text-fuchsia-300",
+  "multimodal":         "border-pink-400/30 bg-pink-500/10 text-pink-300",
 } %}
 {% set strategies = units | map(attribute='decision.strategy') | list %}
 <div>
@@ -88,6 +89,29 @@
       {% endfor %}
     </ul>
     {% endif %}
+  </section>
+  {% endif %}
+
+  {# ── figures ── #}
+  {% if figures and figures.figures %}
+  <section class="card mt-4 p-5">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <span class="label">Figures</span>
+      <span class="text-[11.5px] text-[color:var(--muted)]">
+        a figure with no description is a chunk with nothing to retrieve</span>
+    </div>
+    <p class="mt-2.5 text-[13px] leading-relaxed text-[color:var(--muted)]">
+      <span class="stat font-semibold text-white">{{ figures.understood }}</span>
+      of {{ figures.figures }} figure(s) were read by a model and now carry their own
+      content — visual type, the entities drawn in them, and what they assert
+      {%- if figures.llm_calls %} · {{ figures.llm_calls }} vision call(s),
+      ${{ "%.4f"|format(figures.cost_usd) }}{% endif %}.
+      {%- if figures.skipped %}
+      {{ figures.skipped }} skipped as decoration or over budget.{% endif %}
+    </p>
+    {% for producer, why in (figures.reasons or {}).items() %}
+    <p class="mt-1 text-[11.5px] text-[color:var(--faint)]">{{ producer }}: {{ why }}</p>
+    {% endfor %}
   </section>
   {% endif %}
 
@@ -285,6 +309,10 @@
         {% elif kind == "row_group" %}
         <span class="stat text-[color:var(--faint)]">rows {{ u.metadata.first_row }}–{{ u.metadata.last_row }}</span>
         {% endif %}
+        {% if u.metadata.visual_type and u.metadata.visual_type != "unknown" %}
+        <span class="chip border-amber-400/30 bg-amber-500/10 text-amber-300">
+          {{ u.metadata.visual_type.replace("_", " ") }}</span>
+        {% endif %}
         {% if u.temporal %}
         <span class="stat text-emerald-300">
           {{ "%.1f"|format(u.temporal.start_s) }}–{{ "%.1f"|format(u.temporal.end_s) }}s</span>
@@ -313,6 +341,58 @@
         <span class="label !text-emerald-400/90">situating context</span>
         <p class="mt-1 text-[12.5px] leading-relaxed text-emerald-100/90">{{ u.context.situating_summary }}</p>
       </div>
+      {% endif %}
+
+      {# ── visual evidence: every claim carries the model that made it ── #}
+      {% set vis = u.metadata.visual %}
+      {% if vis %}
+      <div class="mt-3 rounded-xl border border-amber-400/25 bg-amber-500/[.06] px-3.5 py-2.5">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="label !text-amber-400/90">what the picture shows</span>
+          {% for p in vis.producers %}
+          <span class="chip border-amber-400/25 bg-amber-500/10 text-amber-200 mono !text-[10px]">{{ p }}</span>
+          {% endfor %}
+        </div>
+
+        {% if vis.relationships %}
+        <div class="mt-2 space-y-1">
+          {% for r in vis.relationships %}
+          <div class="mono text-[11.5px] text-amber-100/90">
+            <span class="text-white">{{ r.source }}</span>
+            <span class="text-amber-400/80"> --{{ r.relation }}--&gt; </span>
+            <span class="text-white">{{ r.target }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if vis.visual_entities %}
+        <div class="mt-2 flex flex-wrap gap-1">
+          {% for e in vis.visual_entities %}
+          <span class="chip chip-neutral !text-[10.5px]">{{ e }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if vis.ocr_text %}
+        <p class="mono mt-2 text-[11px] leading-relaxed text-[color:var(--muted)]">
+          <span class="text-[color:var(--faint)]">read off the image:</span>
+          {{ vis.ocr_text[:14] | join(" · ") }}</p>
+        {% endif %}
+        {% if vis.objects %}
+        <p class="mono mt-1 text-[11px] text-[color:var(--muted)]">
+          <span class="text-[color:var(--faint)]">detected:</span>
+          {{ vis.objects[:10] | join(", ") }}</p>
+        {% endif %}
+
+        {% for producer, why in (vis.skipped or {}).items() %}
+        <p class="mt-1.5 text-[11px] text-[color:var(--faint)]">
+          {{ producer }} did not run — {{ why }}</p>
+        {% endfor %}
+      </div>
+      {% elif u.metadata.visual_skipped %}
+      <p class="mt-3 text-[11.5px] text-[color:var(--faint)]">
+        No visual understanding: {{ u.metadata.visual_skipped }}</p>
       {% endif %}
 
       {% if u.context.leading %}

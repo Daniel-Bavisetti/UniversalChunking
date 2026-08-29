@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import time
 import uuid
@@ -27,6 +28,11 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+# Extension tables only — neither module pulls a heavy dependency at import
+# time; the engines behind them load lazily when a matching file arrives.
+from .ingest_image import IMAGE_EXTS as _IMAGE_EXTS
+from .ingest_video import VIDEO_EXTS as _VIDEO_EXTS
+
 log = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -36,6 +42,9 @@ MAX_UPLOAD = 50 * 1024 * 1024
 _DOC_EXTS = {".pdf", ".docx", ".pptx", ".xlsx", ".csv", ".html", ".htm", ".md", ".txt"}
 _AUDIO_EXTS = {".mp3", ".m4a", ".wav", ".aac", ".flac", ".ogg"}
 _CONTRACT_EXTS = {".json"}     # payloads from external modality workers (CONTRACT.md)
+
+_ACCEPTED = _DOC_EXTS | _AUDIO_EXTS | _CONTRACT_EXTS | _IMAGE_EXTS | _VIDEO_EXTS
+
 
 def _ensure_logging() -> None:
     """Cleave's own INFO lines reach the console however the app was started.
@@ -144,7 +153,7 @@ def _set(job: Job, progress: int, message: str) -> None:
     job.message = message
 
 
-def run_job(job_id: str, input_paths: list[Path]) -> None:
+def run_job(job_id: str, input_paths: list[Path | str]) -> None:
     """Process every input file through its own ingest → graph → chunk →
     enrich pipeline, then merge the results into one job.
 
@@ -216,9 +225,21 @@ def _prefix_unit(u, prefix: str) -> None:
         r.target_id = prefix + r.target_id
 
 
-def _process_file(job: Job, input_path: Path, *, prefix: str, ledger, progress) -> tuple:
-    """Run the single-file pipeline for one upload in a (possibly multi-file)
-    job. Returns (units, file_meta, graph_nodes, graph_edges, enrichment)."""
+def _process_file(job: Job, input_path: Path | str, *, prefix: str, ledger,
+                  progress) -> tuple:
+    """Run the single-file pipeline for one input in a (possibly multi-input)
+    job. Returns (units, file_meta, graph_nodes, graph_edges, enrichment).
+
+    An input is a path on disk or an http(s) URL; a URL is fetched to Markdown
+    first and is otherwise indistinguishable from a document downstream.
+    """
+    from .ingest_web import is_url  # noqa: PLC0415
+
+    if isinstance(input_path, str) and is_url(input_path):
+        return _process_url(job, input_path, prefix=prefix, ledger=ledger,
+                            progress=progress)
+
+    input_path = Path(input_path)
     suffix = input_path.suffix.lower()
     filename = input_path.name
     progress(0.0, f"understanding {filename}…")
@@ -251,11 +272,42 @@ def _process_file(job: Job, input_path: Path, *, prefix: str, ledger, progress) 
 
         progress(0.1, f"transcribing (STT worker)… ({filename})")
         ingest = ingest_audio(input_path)
+    elif suffix in _VIDEO_EXTS:
+        from .ingest_video import ingest_video  # noqa: PLC0415
+
+        progress(0.1, f"video engine: transcript, scenes, vision… ({filename})")
+        imported, ready_units = ingest_video(
+            input_path, progress=lambda f, m: progress(0.1 + 0.5 * f, m))
+        if ready_units:
+            # VKE's own multimodal boundaries were kept; they arrive finished.
+            for u in ready_units:
+                _prefix_unit(u, prefix)
+            file_meta = {
+                "filename": filename,
+                "title": ready_units[0].context.document_title,
+                "source": str(input_path),
+                "warnings": [],
+                "profile": {
+                    "route": "multimodal",
+                    "route_reason": "boundaries drawn by the video engine, which scores "
+                                    "speech, visual novelty and topic drift together — "
+                                    "signals that do not survive flattening to elements",
+                },
+                "cleaning": None,
+            }
+            progress(1.0, f"done ({filename})")
+            return ready_units, file_meta, [], [], None
+        ingest = imported
+    elif suffix in _IMAGE_EXTS:
+        from .ingest_image import ingest_image  # noqa: PLC0415
+
+        progress(0.1, f"reading the picture (OCR, objects, vision)… ({filename})")
+        ingest = ingest_image(input_path, use_llm=job.use_llm, ledger=ledger)
     else:
         from .ingest_document import ingest_document  # noqa: PLC0415
 
         progress(0.1, f"parsing structure (Docling)… ({filename})")
-        ingest = ingest_document(input_path)
+        ingest = ingest_document(input_path, use_llm=job.use_llm, ledger=ledger)
 
     for e in ingest.elements:
         _prefix_element(e, prefix)
@@ -270,26 +322,61 @@ def _process_file(job: Job, input_path: Path, *, prefix: str, ledger, progress) 
     for u in units:
         _prefix_unit(u, prefix)
 
-    enrichment: dict | None = None
-    flagged_n = sum(1 for u in units if u.decision.escalation_flags)
-    if flagged_n:
-        from .enrich import enrich  # noqa: PLC0415
-
-        progress(0.7, (f"enriching {flagged_n} context-poor chunks… ({filename})"
-                       if job.use_llm else f"skipping LLM enrichment ({filename})…"))
-        doc_text = "\n\n".join(e.text for e in ingest.elements if e.text)
-        enrichment = enrich(
-            units, doc_text, ledger=ledger, use_llm=job.use_llm,
-            progress=lambda i, n2: progress(
-                0.7 + 0.25 * i / max(1, n2), f"enriching… {i}/{n2} ({filename})"))
+    enrichment = _maybe_enrich(job, units, ingest, ledger, progress, filename)
 
     file_meta = {
         "filename": filename, "title": ingest.title, "source": ingest.source_uri,
         "warnings": ingest.warnings, "profile": profile.to_dict(), "cleaning": ingest.cleaning,
+        "figures": ingest.figures,
     }
     progress(1.0, f"done ({filename})")
     gd = graph.to_dict()
     return units, file_meta, gd["nodes"], gd["edges"], enrichment
+
+
+def _process_url(job: Job, url: str, *, prefix: str, ledger, progress) -> tuple:
+    """Fetch a web page and run it through the ordinary document pipeline."""
+    from .chunkers import chunk  # noqa: PLC0415
+    from .graph import ContextGraph  # noqa: PLC0415
+    from .ingest_web import ingest_web  # noqa: PLC0415
+
+    progress(0.0, f"fetching {url}…")
+    ingest = ingest_web(url, use_llm=job.use_llm, ledger=ledger)
+
+    for e in ingest.elements:
+        _prefix_element(e, prefix)
+    progress(0.5, f"{len(ingest.elements)} elements — building context graph… ({url})")
+    graph = ContextGraph(ingest.elements)
+    progress(0.6, f"routing and chunking… ({url})")
+    units, profile = chunk(ingest, graph)
+    for u in units:
+        _prefix_unit(u, prefix)
+
+    enrichment = _maybe_enrich(job, units, ingest, ledger, progress, url)
+    file_meta = {
+        "filename": url, "title": ingest.title, "source": url,
+        "warnings": ingest.warnings, "profile": profile.to_dict(),
+        "cleaning": ingest.cleaning, "figures": ingest.figures,
+    }
+    progress(1.0, f"done ({url})")
+    gd = graph.to_dict()
+    return units, file_meta, gd["nodes"], gd["edges"], enrichment
+
+
+def _maybe_enrich(job: Job, units, ingest, ledger, progress, label: str) -> dict | None:
+    """Selective enrichment for whichever inputs produced flagged units."""
+    flagged_n = sum(1 for u in units if u.decision.escalation_flags)
+    if not flagged_n:
+        return None
+    from .enrich import enrich  # noqa: PLC0415
+
+    progress(0.7, (f"enriching {flagged_n} context-poor chunks… ({label})"
+                   if job.use_llm else f"skipping LLM enrichment ({label})…"))
+    doc_text = "\n\n".join(e.text for e in ingest.elements if e.text)
+    return enrich(
+        units, doc_text, ledger=ledger, use_llm=job.use_llm,
+        progress=lambda i, n2: progress(
+            0.7 + 0.25 * i / max(1, n2), f"enriching… {i}/{n2} ({label})"))
 
 
 def _merge_cleaning(cleanings: list[dict | None]) -> dict | None:
@@ -306,6 +393,24 @@ def _merge_cleaning(cleanings: list[dict | None]) -> dict | None:
         return None
     return {"total_fixes": total_fixes, "elements_changed": elements_changed,
             "chars_removed": chars_removed, "by_rule": dict(by_rule.most_common())}
+
+
+def _merge_figures(reports: list[dict | None]) -> dict | None:
+    """Combine per-file figure reports into one job-level total."""
+    total = {"figures": 0, "understood": 0, "skipped": 0, "llm_calls": 0,
+             "cost_usd": 0.0, "reasons": {}}
+    seen = False
+    for r in reports:
+        if not r or not r.get("figures"):
+            continue
+        seen = True
+        for k in ("figures", "understood", "skipped", "llm_calls"):
+            total[k] += r.get(k, 0)
+        total["cost_usd"] += r.get("cost_usd", 0.0)
+        for producer, why in (r.get("reasons") or {}).items():
+            total["reasons"].setdefault(producer, why)
+    total["cost_usd"] = round(total["cost_usd"], 6)
+    return total if seen else None
 
 
 def _merge_enrichment(parts: list[dict]) -> dict | None:
@@ -355,6 +460,9 @@ def _write_artifacts(job: Job, units, files_meta: list[dict], graph: dict | None
     }
 
     record: dict = {"totals": totals}
+    combined_figures = _merge_figures([f.get("figures") for f in files_meta])
+    if combined_figures:
+        record["figures"] = combined_figures
     if len(files_meta) == 1:
         fm = files_meta[0]
         record["profile"] = fm["profile"]
@@ -431,24 +539,41 @@ def job_results(request: Request, job_id: str):
         "totals": meta["totals"], "title": meta.get("title"), "graph": graph,
         "usage": meta.get("usage"), "enrichment": meta.get("enrichment"),
         "cleaning": meta.get("cleaning"), "files": meta.get("files"),
+        "figures": meta.get("figures"),
     })
 
 
 # ───────── api ─────────
 
 @app.post("/api/jobs")
-async def create_job(background: BackgroundTasks, files: list[UploadFile] = File(...),
+async def create_job(background: BackgroundTasks,
+                     files: list[UploadFile] = File(default=[]),
+                     urls: str = Form(""),
                      use_llm: str = Form("true")):
+    """Start a job from uploaded files, pasted URLs, or both in one batch."""
+    from .ingest_web import is_url  # noqa: PLC0415
+
     job_id = uuid.uuid4().hex[:10]
     dest_dir = DATA / job_id / "input"
     dest_dir.mkdir(parents=True, exist_ok=True)
     names: list[str] = []
-    dest_paths: list[Path] = []
+    dest_paths: list[Path | str] = []
+
+    link_list = [u.strip() for u in re.split(r"[\s,]+", urls or "") if u.strip()]
+    for link in link_list:
+        if not is_url(link):
+            shutil.rmtree(dest_dir, ignore_errors=True)
+            raise HTTPException(400, f"not an http(s) URL: {link!r}")
+        names.append(link)
+        dest_paths.append(link)
+
     try:
         for i, f in enumerate(files):
-            fname = f.filename or f"upload{i}"
+            if not f.filename:
+                continue          # browsers post an empty part for an unused input
+            fname = f.filename
             suffix = Path(fname).suffix.lower()
-            if suffix not in _DOC_EXTS | _AUDIO_EXTS | _CONTRACT_EXTS:
+            if suffix not in _ACCEPTED:
                 raise HTTPException(415, f"unsupported type {suffix!r} ({fname})")
             dest = dest_dir / fname
             if dest.exists():  # two files with the same name in one batch
@@ -463,7 +588,7 @@ async def create_job(background: BackgroundTasks, files: list[UploadFile] = File
             names.append(dest.name)
             dest_paths.append(dest)
         if not dest_paths:
-            raise HTTPException(400, "no files uploaded")
+            raise HTTPException(400, "no files or URLs supplied")
     except Exception:
         shutil.rmtree(dest_dir, ignore_errors=True)
         raise

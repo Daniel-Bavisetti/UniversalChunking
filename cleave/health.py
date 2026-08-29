@@ -89,10 +89,95 @@ def _check_retrieval(embeddings: Check) -> Check:
 
 
 def _check_vision() -> Check:
-    """Vision is not built yet. Reported honestly rather than omitted, so the
-    panel shows the whole intended surface and its real state."""
-    return Check("vision", "Vision model", False, "not_configured",
-                 "not implemented — figures carry caption text only")
+    """The visual stack is three independent producers, so it degrades in
+    stages rather than on/off: OCR and object detection can carry a figure on
+    their own when no vision model is configured."""
+    try:
+        from .vision import available  # noqa: PLC0415
+
+        state = available()
+    except Exception as exc:
+        return Check("vision", "Visual understanding", False, "unavailable",
+                     f"visual stack failed to load ({type(exc).__name__}: {exc})")
+
+    live = [name for name, key in (("OCR", "ocr"), ("objects", "objects"),
+                                   ("vision model", "vision_model")) if state.get(key)]
+    if not live:
+        why = "; ".join(f"{k}: {v}" for k, v in state.get("reasons", {}).items())
+        return Check("vision", "Visual understanding", False, "not_configured",
+                     f"no visual producer available — figures keep caption text only"
+                     + (f" ({why})" if why else ""))
+
+    detail_bits = []
+    if state.get("ocr"):
+        detail_bits.append(f"OCR {state.get('ocr_model', '')}".strip())
+    if state.get("objects"):
+        detail_bits.append(f"objects {state.get('object_model', '')}".strip())
+    if state.get("vision_model"):
+        detail_bits.append(f"vision {state.get('vision_model_name', '')}".strip())
+    missing = [k for k in ("ocr", "objects", "vision_model") if not state.get(k)]
+    detail = " · ".join(detail_bits)
+    if missing:
+        detail += f" — {', '.join(missing)} unavailable"
+    # Partial capability is real capability here, so it reports active with the
+    # gap named rather than failing the whole check.
+    return Check("vision", "Visual understanding", True, "active", detail)
+
+
+def _check_video() -> Check:
+    """The video engine is several parts; name whichever one is missing."""
+    missing: list[str] = []
+    for module, label in (("faster_whisper", "ASR (faster-whisper)"),
+                          ("scenedetect", "scene detection"),
+                          ("cv2", "frame decode (opencv)")):
+        try:
+            __import__(module)
+        except Exception:
+            missing.append(label)
+    try:
+        import vke.pipeline  # noqa: F401, PLC0415
+    except Exception as exc:
+        return Check("video", "Video engine", False, "unavailable",
+                     f"vke did not import ({type(exc).__name__}: {exc})")
+    if missing:
+        return Check("video", "Video engine", False, "unavailable",
+                     "missing " + ", ".join(missing) + " — install the 'video' extra")
+
+    from .ingest_video import BOUNDARY_ENGINE  # noqa: PLC0415
+
+    how = ("multimodal boundaries (speech · scene cuts · visual novelty · topic drift)"
+           if BOUNDARY_ENGINE == "vke" else "speaker-turn boundaries via the shared chunker")
+    return Check("video", "Video engine", True, "active", how)
+
+
+def _check_web() -> Check:
+    """Static extraction is the fast path; the browser is the escalation."""
+    static = rendered = False
+    try:
+        import trafilatura  # noqa: F401, PLC0415
+
+        static = True
+    except Exception:
+        pass
+    try:
+        import crawl4ai  # noqa: F401, PLC0415
+
+        rendered = True
+    except Exception:
+        pass
+
+    if not static and not rendered:
+        return Check("web", "Web ingestion", False, "not_configured",
+                     "no fetcher installed — install the 'web' extra for URLs")
+    if static and not rendered:
+        return Check("web", "Web ingestion", True, "active",
+                     "trafilatura — static pages; JavaScript-rendered pages need "
+                     "the 'web-rendered' extra")
+    if rendered and not static:
+        return Check("web", "Web ingestion", True, "active",
+                     "crawl4ai — every page pays for a headless browser")
+    return Check("web", "Web ingestion", True, "active",
+                 "trafilatura for static pages, crawl4ai when a page needs rendering")
 
 
 def _check_llm() -> Check:
@@ -129,6 +214,8 @@ def system_status(refresh: bool = False) -> list[dict[str, Any]]:
         embeddings,
         _check_retrieval(embeddings),
         _check_vision(),
+        _check_video(),
+        _check_web(),
         _check_llm(),
     ]
     out = [c.to_dict() for c in checks]

@@ -13,6 +13,18 @@
    "cache_hit_pct": 0.0
   },
   {
+   "model": "gemini-3.6-flash",
+   "calls": 2,
+   "in_tokens": 13917,
+   "out_tokens": 1067,
+   "cached_tokens": 0,
+   "cost_usd": 0.014439,
+   "failures": 0,
+   "estimated": false,
+   "local": false,
+   "cache_hit_pct": 0.0
+  },
+  {
    "model": "ollama/qwen3:4b",
    "calls": 4,
    "in_tokens": 8200,
@@ -26,13 +38,13 @@
   }
  ],
  "totals": {
-  "calls": 8,
-  "in_tokens": 41737,
-  "out_tokens": 8125,
+  "calls": 10,
+  "in_tokens": 55654,
+  "out_tokens": 9192,
   "cached_tokens": 0,
-  "cost_usd": 0.022318,
+  "cost_usd": 0.036757,
   "local_calls": 4,
-  "paid_calls": 4
+  "paid_calls": 6
  },
- "last_job": "75939bc081"
+ "last_job": "1d0b3808ea"
 }

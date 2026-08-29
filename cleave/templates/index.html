@@ -35,8 +35,8 @@
             id="upload-form" class="mt-8 max-w-xl" novalidate>
         <div class="card flex flex-col gap-3 p-3 sm:flex-row sm:items-center">
           <label for="file-input" class="min-w-0 flex-1 cursor-pointer px-2">
-            <input type="file" name="files" required id="file-input" multiple
-                   accept=".pdf,.docx,.pptx,.xlsx,.csv,.md,.txt,.html,.mp3,.m4a,.wav,.flac,.json"
+            <input type="file" name="files" id="file-input" multiple
+                   accept=".pdf,.docx,.pptx,.xlsx,.csv,.md,.txt,.html,.mp3,.m4a,.wav,.flac,.json,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,.gif,.mp4,.mov,.mkv,.webm,.avi,.m4v"
                    class="block w-full cursor-pointer text-sm text-[color:var(--muted)]
                           file:mr-3 file:cursor-pointer file:rounded-full file:border-0
                           file:bg-[color:var(--surface-3)] file:px-3.5 file:py-2
@@ -51,6 +51,21 @@
                 <path d="M3 8h9M8.5 4.5L12 8l-3.5 3.5"/></svg>
             </span>
           </button>
+        </div>
+
+        {# a URL is an input like any other: fetched to Markdown, then chunked
+           by the same router that handles a PDF #}
+        <div class="card mt-2.5 flex items-center gap-2 p-3">
+          <span class="shrink-0 pl-1 text-[color:var(--faint)]">
+            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round">
+              <path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.5 1.5"/>
+              <path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.5-1.5"/></svg>
+          </span>
+          <input type="url" name="urls" id="url-input" inputmode="url"
+                 placeholder="…or paste a web page URL (https://…)"
+                 class="field !border-0 !bg-transparent !px-1 !py-1 flex-1 !text-[13px]
+                        focus:!shadow-none">
         </div>
 
         <label class="mt-3 flex cursor-pointer items-center gap-2.5 px-2 text-[12.5px] text-[color:var(--muted)]">
@@ -70,15 +85,18 @@
       </form>
 
       <p class="mt-3 max-w-xl px-2 text-[12px] leading-relaxed text-[color:var(--faint)]">
-        Select several files at once — a PDF, a spreadsheet, a call recording — and they land
-        as one combined job: each is routed on its own merits, then searched together.
+        Mix them freely — a PDF, a spreadsheet, a screenshot, a recorded demo and a web page
+        land as one combined job: each is routed on its own merits, then searched together.
       </p>
 
       <div class="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-[12px] text-[color:var(--faint)]">
         {% for tone, label, formats in [
           ("#4d82ff", "Documents",    "PDF · DOCX · PPTX · MD"),
           ("#2dd4bf", "Spreadsheets", "CSV · XLSX"),
+          ("#f59e0b", "Images",       "PNG · JPG · scans"),
+          ("#f472b6", "Video",        "MP4 · MOV · MKV"),
           ("#34d399", "Audio",        "MP3 · M4A · WAV"),
+          ("#38bdf8", "Web",          "URL"),
           ("#c084fc", "Contract",     "JSON")] %}
         <span class="flex items-center gap-1.5">
           <span class="h-1.5 w-1.5 rounded-full" style="background:{{ tone }}"></span>
@@ -302,13 +320,22 @@
     document.getElementById('use-llm-field').value = e.target.checked ? 'true' : 'false';
   });
 
-  document.getElementById('upload-form').addEventListener('submit', () => {
+  document.getElementById('upload-form').addEventListener('submit', (e) => {
+    // Either input satisfies the form: files, a URL, or both in one job.
+    const n = document.getElementById('file-input').files.length;
+    const url = document.getElementById('url-input').value.trim();
+    if (!n && !url) {
+      e.preventDefault();
+      document.getElementById('url-input').focus();
+      return;
+    }
     // The page navigates away on success, so this state only ever shows during
     // the POST — long enough to stop a second click on a big file.
-    const n = document.getElementById('file-input').files.length;
-    if (!n) return;
     document.getElementById('submit-btn').disabled = true;
-    document.getElementById('btn-label').textContent = n > 1 ? `Uploading ${n} files…` : 'Uploading…';
+    const label = document.getElementById('btn-label');
+    if (n && url)   label.textContent = `Sending ${n + 1} inputs…`;
+    else if (url)   label.textContent = 'Fetching page…';
+    else            label.textContent = n > 1 ? `Uploading ${n} files…` : 'Uploading…';
   });
 </script>
 {% endblock %}
