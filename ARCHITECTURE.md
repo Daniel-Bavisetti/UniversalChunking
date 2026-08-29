@@ -326,6 +326,23 @@ The UI polls a partial that **stops polling itself**: while the job runs the fra
 carries `hx-trigger`, and the terminal render simply omits it. No timer to clear, no
 lifecycle to leak.
 
+**A job can hold several input files.** The upload form accepts multiple files as one
+submission; `run_job()` runs each through its own ingest → graph → route → chunk → enrich
+pipeline (`_process_file()`), then merges the results. Every element and unit id is
+namespaced with a per-file prefix (`_prefix_element`, `_prefix_unit`) before merging, so two
+files' `el_0000` never collide and relationship targets stay internally consistent. Cleaning
+stats and enrichment totals are summed across files (`_merge_cleaning`, `_merge_enrichment`);
+a single-file job still writes the same flat `profile.json` shape it always has, and a
+multi-file job adds a `files` array alongside the combined totals, so existing single-file
+consumers see nothing new. Search and the context graph view operate over the merged set —
+one job, searched as a whole, even though each file kept the routing decision that fit it.
+
+**Per-job LLM override.** `Job.use_llm` (from the upload form's toggle) is threaded into
+`enrich()`; when false it forces `NoneProvider` regardless of what `CLEAVE_LLM`/Ollama/Gemini
+would otherwise select, so a user can force a deterministic, zero-cost run without touching
+server config. The result page reports flagged-but-unenriched chunks as "toggle was off"
+rather than "no provider found."
+
 Per job on disk: `units.json`, `graph.json`, `profile.json` (profile + totals).
 
 ---

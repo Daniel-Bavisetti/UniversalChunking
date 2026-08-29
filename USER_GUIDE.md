@@ -47,8 +47,9 @@ stack need conflicting versions of the same libraries. If you have the STT proje
 cd ~/PycharmProjects/STT && .venv/bin/python -m uvicorn --factory stt.server.app:app_factory --port 8000
 ```
 
-Cleave finds it automatically. Without it, audio uploads fail with a clear message and
-everything else works normally.
+Cleave finds it at `http://127.0.0.1:8000` by default; set `CLEAVE_STT_URL` to point at a
+different host or port. Without it, audio uploads fail with a clear message and everything
+else works normally.
 
 ### Optional: AI enrichment
 
@@ -73,15 +74,12 @@ brew install ollama && ollama serve
 ollama pull qwen3:4b
 ```
 
-Cleave finds it on the next run. The home page's **Spend** section shows which provider is
-active. To force a choice server-wide: `CLEAVE_LLM=none`, `CLEAVE_LLM=ollama`, or
-`CLEAVE_LLM=gemini`.
-
-The upload form also has a **"Summarize chunks with an LLM"** toggle, on by default. Turning
-it off for a job skips enrichment entirely for that upload — no model call, no cost — while
-routing, chunking and the veto logic run exactly the same. The result page notes when flagged
-chunks stayed at tier 0 because the toggle was off, so it reads the same as "no provider
-configured" rather than looking like a bug.
+Cleave finds it on the next run at `http://127.0.0.1:11434` — override with
+`CLEAVE_OLLAMA_URL` and pin a specific model with `CLEAVE_OLLAMA_MODEL` if more than one is
+pulled. Gemini's model defaults to `gemini-2.5-flash`, overridable via `GEMINI_MODEL`. The
+home page's **Spend** section shows which provider is active. To force a choice
+server-wide: `CLEAVE_LLM=none`, `CLEAVE_LLM=ollama`, or `CLEAVE_LLM=gemini`. See
+`.env.example` for the full list of tunable variables.
 
 ### Watching what it costs
 
@@ -115,7 +113,17 @@ Apple Silicon, so a 20-page paper is a comfortable size.
 
 ### 1. The home page
 
-Drop in a file and press **Cleave it**.
+Drop in a file — or select several at once — and press **Cleave it**. A PDF, a spreadsheet,
+and a call recording chosen together land as **one combined job**: each file is routed on
+its own merits (its own strategy, its own veto decisions), then the results are merged and
+searched together. Element and unit ids are namespaced per file internally, so nothing
+collides.
+
+The **"Summarize chunks with an LLM"** toggle sits below the upload box, on by default.
+Turning it off for a job skips enrichment entirely — no model call, no cost — while routing,
+chunking, and the veto logic run exactly the same. The result page notes when flagged chunks
+stayed at tier 0 because the toggle was off, so it reads the same as "no provider
+configured" rather than looking like a bug.
 
 Above the upload box, if an evaluation has been run, sits the **Context Preservation
 Scorecard** — the measured comparison between ordinary fixed-size chunking and Cleave, on
@@ -156,14 +164,19 @@ signals that drove it. This changes per file — that is the point. You will see
 | `paragraph_fallback` | flat prose, no embedding model | honest paragraph packing |
 | `atomic` | any table or figure inside prose | kept whole with its caption |
 
-**The search box** runs retrieval over the units. Worth trying a question whose answer
-depends on context — the results show what each unit knew about itself. *Click the Search
-button rather than pressing Enter.*
+For a job with several files, this becomes a **"Files in this job"** card instead: one entry
+per input, each with its own strategy chip, reasoning, cleaning-fix count, and any warnings —
+routed independently, then combined into the one set of units below.
 
-**The context graph** (click to open) draws every element of the file in reading order along
-a line, with an arc for each relationship found. Amber arcs are captions bound to their
-figures, blue arcs are cross-references like "see Table 3". Hover any arc for the evidence.
-Every arc is something a boundary was not allowed to cut through.
+**The search box** runs retrieval over every unit in the job — across all files, if there was
+more than one. Worth trying a question whose answer depends on context — the results show
+what each unit knew about itself. *Click the Search button rather than pressing Enter.*
+
+**The context graph** (click to open) draws every element in reading order along a line, with
+an arc for each relationship found. Amber arcs are captions bound to their figures, blue arcs
+are cross-references like "see Table 3". Hover any arc for the evidence. Every arc is
+something a boundary was not allowed to cut through. In a multi-file job, each file's
+elements keep their own reading order and relationships — nothing is linked across files.
 
 **The filter row** narrows the units — by strategy, or to just those that needed context, or
 just those where a cut was refused. Beside it are links to the raw `units.json`,
@@ -262,6 +275,11 @@ Every job writes to `data/jobs/<job_id>/`:
 | `units.json` | the knowledge units — what a downstream system consumes |
 | `graph.json` | every element and relationship found |
 | `profile.json` | the signals, the routing decision, and the run totals |
+
+For a single-file job, `profile.json` carries `profile`, `title`, and `source` at the top
+level, same as always. For a multi-file job, those are replaced by a `files` array — one
+entry per input, each with its own `profile`, `filename`, and `warnings` — alongside the same
+combined `totals` block, so a single-file consumer of `profile.json` sees nothing new.
 
 Each unit carries an `embed_text` field: exactly the text to embed, with its context already
 in front. That is the intended integration point — embed `embed_text`, store the rest as
