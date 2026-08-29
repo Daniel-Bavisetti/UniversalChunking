@@ -8,6 +8,7 @@
   <a href="#scorecard" class="rounded-full px-3 py-1.5 font-medium text-[color:var(--muted)] hover:text-white">Evidence</a>
   {% endif %}
   <a href="#spend" class="rounded-full px-3 py-1.5 font-medium text-[color:var(--muted)] hover:text-white">Spend</a>
+  <a href="#pipelines" class="rounded-full px-3 py-1.5 font-medium text-[color:var(--muted)] hover:text-white">Pipelines</a>
   <a href="#jobs" class="rounded-full px-3 py-1.5 font-medium text-[color:var(--muted)] hover:text-white">Jobs</a>
 </nav>
 {% endblock %}
@@ -336,6 +337,41 @@
       </p>
     </div>
     {% endif %}
+  </section>
+
+  {# ── pipelines: the stage path each data type takes ── #}
+  <section id="pipelines" class="scroll-mt-24 pb-6 pt-4">
+    <div class="mb-4">
+      <div class="label">Pipelines</div>
+      <h2 class="mt-1.5 text-2xl font-bold text-white">One path per data type</h2>
+      <p class="mt-1.5 max-w-2xl text-[13.5px] leading-relaxed text-[color:var(--muted)]">
+        Nothing is flattened to plain text first — each input runs the stages its
+        modality actually needs, and the status view tracks these same stages live.
+      </p>
+    </div>
+    <div class="card divide-y divide-[color:var(--line)] px-5">
+      {% for label, tone, steps in pipelines %}
+      <div class="flex flex-col gap-2 py-3.5 sm:flex-row sm:items-center sm:gap-4">
+        <span class="flex w-32 shrink-0 items-center gap-2">
+          <span class="h-1.5 w-1.5 shrink-0 rounded-full" style="background:{{ tone }}"></span>
+          <span class="text-[12.5px] font-semibold text-white">{{ label }}</span>
+        </span>
+        <span class="flex flex-wrap items-center gap-y-1.5 text-[11.5px] text-[color:var(--muted)]">
+          {% for step in steps %}
+          {% if not loop.first %}
+          <svg viewBox="0 0 16 16" class="mx-1.5 h-2.5 w-2.5 shrink-0 text-[color:var(--faint)]"
+               fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 8h9M8.5 4.5L12 8l-3.5 3.5"/></svg>
+          {% endif %}
+          <span class="rounded-full bg-[color:var(--surface-3)] px-2.5 py-1
+                       {{ 'font-medium text-[#8fb3ff]' if loop.last else 'text-[color:var(--text)]' }}">
+            {{ step }}</span>
+          {% endfor %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
   </section>
 
   {# ── jobs ── #}

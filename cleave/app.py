@@ -169,6 +169,18 @@ _PIPELINES: dict[str, list[tuple[str, int]]] = {
     "contract": [("validate", 5), ("import units", 13), ("write", 90)],
 }
 
+#: Display order and tone for the per-type pipeline overview on the index
+#: page — same tones as the "What you can drop in" cards.
+_PIPELINE_OVERVIEW: list[tuple[str, str, str]] = [
+    ("Documents",    "#4d82ff", "document"),
+    ("Spreadsheets", "#2dd4bf", "tabular"),
+    ("Images",       "#f59e0b", "image"),
+    ("Video",        "#f472b6", "video"),
+    ("Audio",        "#34d399", "audio"),
+    ("Web pages",    "#38bdf8", "web"),
+    ("Contract",     "#c084fc", "contract"),
+]
+
 #: Batches mix kinds and rescale each file's progress window, so the per-kind
 #: thresholds above would lie — the coarse path is the honest one there.
 _GENERIC_PIPELINE: list[tuple[str, int]] = [
@@ -719,6 +731,8 @@ def index(request: Request):
         "usage": read_cumulative(), "providers": describe_providers(),
         "checks": checks, "banner": enrichment_banner(checks),
         "samples": SAMPLES,
+        "pipelines": [(label, tone, [s for s, _ in _PIPELINES[kind]])
+                      for label, tone, kind in _PIPELINE_OVERVIEW],
     })
 
 
