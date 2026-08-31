@@ -202,27 +202,40 @@
   {# ── graph ── #}
   {% if graph and graph.edges %}
   <section class="card mt-4 p-5">
-    <details>
+    <details open>
       <summary class="flex cursor-pointer items-center justify-between gap-3">
         <div>
-          <span class="label">Context graph</span>
+          <span class="label">Context graph & boundary topology</span>
           <span class="ml-2 text-[12.5px] text-[color:var(--muted)]">
             {{ graph.nodes | length }} elements · {{ graph.edges | length }} relationships
           </span>
         </div>
-        <span class="btn-ghost !py-1 !text-[11.5px]">view</span>
+        <span class="btn-ghost !py-1 !text-[11.5px]">toggle</span>
       </summary>
       <p class="mt-3.5 max-w-3xl text-[12.5px] leading-relaxed text-[color:var(--muted)]">
-        Every element in reading order, left to right. Each arc is a relationship the chunker had
-        to respect — cutting where an arc lands would have separated things that explain each
-        other. Hover any arc for the evidence behind it.
+        Interactive element topology and relationship constraints. The universal boundary engine vetoes any cuts crossing hard relationship edges (captions ↔ floats, questions ↔ answers, schema cards ↔ rows).
       </p>
-      <div class="mt-3 overflow-x-auto rounded-xl border border-[color:var(--line)] bg-[color:var(--bg)] p-2">
+
+      <div class="mt-3 flex items-center gap-2">
+        <button id="btn-show-2d" class="chip is-on border-blue-400/30 bg-blue-500/20 text-blue-300">2D Force Canvas</button>
+        <button id="btn-show-arc" class="chip border-slate-400/20 bg-slate-500/10 text-slate-400">Arc Sequence</button>
+        <span id="graph-inspector" class="ml-auto text-[11.5px] mono text-[color:var(--faint)] truncate max-w-md">Click a node to inspect relationships</span>
+      </div>
+
+      {# 2D Force Canvas #}
+      <div id="canvas-container" class="mt-3 relative rounded-xl border border-[color:var(--line)] bg-[color:var(--bg)] p-1 overflow-hidden">
+        <canvas id="topo-canvas" class="w-full h-80 block rounded-lg cursor-grab"></canvas>
+      </div>
+
+      {# Arc diagram #}
+      <div id="arc-container" class="mt-3 hidden overflow-x-auto rounded-xl border border-[color:var(--line)] bg-[color:var(--bg)] p-2">
         <svg id="arc" width="100%" height="190" style="min-width:640px"></svg>
       </div>
+
       <div class="mt-2.5 flex flex-wrap gap-3.5 text-[11px] text-[color:var(--faint)]">
         {% for t, c in [("captions","#fbbf24"),("references","#4d82ff"),
-                        ("has_schema","#2dd4bf"),("hierarchy","#3d4a68")] %}
+                        ("has_schema","#2dd4bf"),("parent","#3d4a68"),
+                        ("answered_by","#a78bfa"),("occurs_during","#34d399")] %}
         <span class="flex items-center gap-1.5">
           <span class="inline-block h-0.5 w-5 rounded" style="background:{{ c }}"></span>{{ t }}</span>
         {% endfor %}
@@ -232,7 +245,7 @@
   </section>
   {% endif %}
 
-  {# ── filters ── #}
+  {# ── filters & exports ── #}
   <div class="mt-9 flex flex-wrap items-end justify-between gap-3">
     <div>
       <div class="label">Knowledge units</div>
@@ -240,12 +253,14 @@
       <div class="mt-1 text-[15px] font-semibold text-white">{{ title }}</div>
       {% endif %}
     </div>
-    <div class="flex flex-wrap gap-1.5">
-      {% for label, href in [("units.json", "/api/jobs/" ~ job.id ~ "/units"),
-                             ("graph.json", "/api/jobs/" ~ job.id ~ "/graph"),
-                             ("profile.json", "/api/jobs/" ~ job.id ~ "/profile")] %}
-      <a href="{{ href }}" target="_blank" rel="noopener" class="btn-ghost !py-1 mono !text-[11px]">{{ label }}</a>
-      {% endfor %}
+    <div class="flex flex-wrap items-center gap-1.5">
+      <span class="text-[11px] text-[color:var(--faint)] mr-1">Export:</span>
+      <a href="/api/jobs/{{ job.id }}/export?format=langchain" target="_blank" rel="noopener" class="btn-ghost !py-1 !px-2.5 !text-[11px] text-amber-300/90 border-amber-400/20 bg-amber-500/5 hover:bg-amber-500/15">LangChain</a>
+      <a href="/api/jobs/{{ job.id }}/export?format=llamaindex" target="_blank" rel="noopener" class="btn-ghost !py-1 !px-2.5 !text-[11px] text-teal-300/90 border-teal-400/20 bg-teal-500/5 hover:bg-teal-500/15">LlamaIndex</a>
+      <a href="/api/jobs/{{ job.id }}/export?format=qdrant" target="_blank" rel="noopener" class="btn-ghost !py-1 !px-2.5 !text-[11px] text-rose-300/90 border-rose-400/20 bg-rose-500/5 hover:bg-rose-500/15">Qdrant</a>
+      <a href="/api/jobs/{{ job.id }}/units" target="_blank" rel="noopener" class="btn-ghost !py-1 mono !text-[11px]">units.json</a>
+      <a href="/api/jobs/{{ job.id }}/graph" target="_blank" rel="noopener" class="btn-ghost !py-1 mono !text-[11px]">graph.json</a>
+      <a href="/api/jobs/{{ job.id }}/profile" target="_blank" rel="noopener" class="btn-ghost !py-1 mono !text-[11px]">profile.json</a>
     </div>
   </div>
 
@@ -269,6 +284,7 @@
   <div class="mt-3 space-y-3 pb-20" id="unit-list">
     {% for u in units %}
     {% set kind = u.metadata.get("element_kind") %}
+    {% set ku_type = u.knowledge_unit_type if u.knowledge_unit_type else "generic" %}
     <article class="unit card p-5 transition-colors"
              id="{{ u.id }}"
              data-strategy="{{ u.decision.strategy }}"
@@ -278,6 +294,9 @@
       <div class="flex flex-wrap items-center gap-2 text-[11.5px]">
         <a href="#{{ u.id }}" class="mono text-[color:var(--faint)] hover:text-[#8fb3ff]">{{ u.id }}</a>
         <span class="chip {{ chip.get(u.decision.strategy, chip['paragraph_fallback']) }}">{{ u.decision.strategy }}</span>
+        {% if ku_type and ku_type != "generic" %}
+        <span class="chip border-indigo-400/30 bg-indigo-500/10 text-indigo-300">{{ ku_type.replace('_', ' ') }}</span>
+        {% endif %}
         <span class="stat text-[color:var(--faint)]">{{ u.token_count }} tok</span>
         {% if u.provenance.page %}<span class="text-[color:var(--faint)]">p.{{ u.provenance.page }}</span>{% endif %}
         {% if kind == "schema_card" %}
@@ -291,6 +310,11 @@
         {% if u.temporal.speaker %}
         <span class="chip border-emerald-400/30 bg-emerald-500/10 text-emerald-300">{{ u.temporal.speaker }}</span>
         {% endif %}
+        {% endif %}
+        {% if u.context_completeness is defined and u.context_completeness < 1.0 %}
+        <span class="chip border-amber-400/30 bg-amber-500/10 text-amber-300" title="Missing: {{ u.missing_context | join(', ') }}">
+          completeness {{ (u.context_completeness * 100)|round|int }}%
+        </span>
         {% endif %}
         <span class="ml-auto">
           {% if u.context.situating_summary %}
@@ -427,58 +451,263 @@
     });
   }));
 
-  // ── arc diagram ──
-  const data = document.getElementById('graph-data');
-  const svg = document.getElementById('arc');
-  if (!data || !svg) return;
-  const g = JSON.parse(data.textContent);
-  const COLOR = {captions:'#fbbf24', captioned_by:'#fbbf24', references:'#4d82ff',
-                 has_schema:'#2dd4bf', schema_of:'#2dd4bf', parent:'#3d4a68'};
-  const KIND = {heading:'#4d82ff', table:'#2dd4bf', figure:'#fbbf24', caption:'#f59e0b',
-                speech_segment:'#34d399'};
-  const idx = new Map(g.nodes.map((n, i) => [n.id, i]));
-  const W = Math.max(640, g.nodes.length * 9), H = 190, BASE = 150, PAD = 16;
-  const x = i => PAD + (i * (W - 2 * PAD)) / Math.max(1, g.nodes.length - 1);
-  const ns = 'http://www.w3.org/2000/svg';
-  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  svg.setAttribute('style', `min-width:${W}px`);
+  // ── graph view toggles ──
+  const btn2D = document.getElementById('btn-show-2d');
+  const btnArc = document.getElementById('btn-show-arc');
+  const canvasContainer = document.getElementById('canvas-container');
+  const arcContainer = document.getElementById('arc-container');
+  const inspector = document.getElementById('graph-inspector');
 
-  const axis = document.createElementNS(ns, 'line');
-  axis.setAttribute('x1', PAD); axis.setAttribute('x2', W - PAD);
-  axis.setAttribute('y1', BASE); axis.setAttribute('y2', BASE);
-  axis.setAttribute('stroke', '#1a2743'); axis.setAttribute('stroke-width', 1);
-  svg.appendChild(axis);
-
-  for (const e of g.edges) {                     // arcs first so nodes sit on top
-    if (e.type === 'next' || e.type === 'previous') continue;
-    const a = idx.get(e.source), b = idx.get(e.target);
-    if (a === undefined || b === undefined) continue;
-    const x1 = x(a), x2 = x(b), r = Math.abs(x2 - x1) / 2;
-    const h = Math.min(BASE - 14, Math.max(14, r * 0.85));
-    const p = document.createElementNS(ns, 'path');
-    p.setAttribute('d', `M ${x1} ${BASE} A ${r} ${h} 0 0 ${x2 > x1 ? 1 : 0} ${x2} ${BASE}`);
-    p.setAttribute('fill', 'none');
-    p.setAttribute('stroke', COLOR[e.type] || '#3d4a68');
-    p.setAttribute('stroke-width', e.type === 'parent' ? .6 : 1.4);
-    p.setAttribute('opacity', e.type === 'parent' ? .3 : .8);
-    p.appendChild(Object.assign(document.createElementNS(ns, 'title'),
-      {textContent: `${e.type} (${e.confidence})\n${e.evidence || ''}`}));
-    svg.appendChild(p);
+  if (btn2D && btnArc && canvasContainer && arcContainer) {
+    btn2D.addEventListener('click', () => {
+      btn2D.className = 'chip is-on border-blue-400/30 bg-blue-500/20 text-blue-300';
+      btnArc.className = 'chip border-slate-400/20 bg-slate-500/10 text-slate-400';
+      canvasContainer.classList.remove('hidden');
+      arcContainer.classList.add('hidden');
+    });
+    btnArc.addEventListener('click', () => {
+      btnArc.className = 'chip is-on border-blue-400/30 bg-blue-500/20 text-blue-300';
+      btn2D.className = 'chip border-slate-400/20 bg-slate-500/10 text-slate-400';
+      arcContainer.classList.remove('hidden');
+      canvasContainer.classList.add('hidden');
+    });
   }
-  g.nodes.forEach((n, i) => {
-    const c = document.createElementNS(ns, 'circle');
-    c.setAttribute('cx', x(i)); c.setAttribute('cy', BASE);
-    c.setAttribute('r', ['table','figure','heading'].includes(n.kind) ? 3.4 : 2);
-    c.setAttribute('fill', KIND[n.kind] || '#3d4a68');
-    c.appendChild(Object.assign(document.createElementNS(ns, 'title'),
-      {textContent: `${n.id} · ${n.kind}${n.page ? ' · p.' + n.page : ''}\n${n.text}`}));
-    svg.appendChild(c);
-  });
-  const label = document.createElementNS(ns, 'text');
-  label.setAttribute('x', PAD); label.setAttribute('y', BASE + 24);
-  label.setAttribute('fill', '#64748f'); label.setAttribute('font-size', '10');
-  label.setAttribute('font-family', 'Inter, sans-serif');
-  label.textContent = 'reading order →';
-  svg.appendChild(label);
+
+  // ── graph data & visualization ──
+  const dataEl = document.getElementById('graph-data');
+  if (!dataEl) return;
+  const g = JSON.parse(dataEl.textContent);
+  const COLOR = {
+    captions:'#fbbf24', captioned_by:'#fbbf24', references:'#4d82ff',
+    has_schema:'#2dd4bf', schema_of:'#2dd4bf', parent:'#3d4a68',
+    answered_by:'#a78bfa', question_for:'#a78bfa', occurs_during:'#34d399'
+  };
+  const KIND_COLOR = {
+    heading:'#4d82ff', table:'#2dd4bf', figure:'#fbbf24', caption:'#f59e0b',
+    speech_segment:'#34d399', visual_event:'#ec4899', paragraph:'#94a3b8'
+  };
+
+  // ── 1. Interactive 2D Canvas Graph ──
+  const canvas = document.getElementById('topo-canvas');
+  if (canvas) {
+    const ctx = canvas.getContext('2d');
+    let width = canvas.clientWidth || 800;
+    let height = canvas.clientHeight || 320;
+    canvas.width = width * window.devicePixelRatio;
+    canvas.height = height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+    // Initialize node positions in circle / distributed layout
+    const nodes = g.nodes.map((n, i) => {
+      const angle = (i / Math.max(1, g.nodes.length)) * Math.PI * 2;
+      const radius = Math.min(width, height) * 0.35 + (i % 3) * 20;
+      return {
+        id: n.id,
+        kind: n.kind,
+        text: n.text || '',
+        page: n.page,
+        x: width / 2 + Math.cos(angle) * radius,
+        y: height / 2 + Math.sin(angle) * radius,
+        vx: 0,
+        vy: 0,
+        r: ['table', 'figure', 'heading'].includes(n.kind) ? 9 : 6,
+      };
+    });
+
+    const nodeMap = new Map(nodes.map(n => [n.id, n]));
+    const nonLinearEdges = g.edges.filter(e => e.type !== 'next' && e.type !== 'previous');
+
+    let selectedNode = null;
+    let hoveredNode = null;
+    let isDragging = false;
+
+    // Simple spring-electrical force step
+    function stepSimulation() {
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const dx = nodes[j].x - nodes[i].x;
+          const dy = nodes[j].y - nodes[i].y;
+          const dist = Math.hypot(dx, dy) || 1;
+          if (dist < 180) {
+            const force = (180 - dist) / dist * 0.08;
+            nodes[i].vx -= dx * force;
+            nodes[i].vy -= dy * force;
+            nodes[j].vx += dx * force;
+            nodes[j].vy += dy * force;
+          }
+        }
+      }
+
+      nonLinearEdges.forEach(e => {
+        const u = nodeMap.get(e.source), v = nodeMap.get(e.target);
+        if (!u || !v) return;
+        const dx = v.x - u.x;
+        const dy = v.y - u.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const ideal = e.type === 'parent' ? 60 : 100;
+        const force = (dist - ideal) * 0.008;
+        u.vx += dx * force;
+        u.vy += dy * force;
+        v.vx -= dx * force;
+        v.vy -= dy * force;
+      });
+
+      nodes.forEach(n => {
+        if (n === selectedNode && isDragging) return;
+        n.x += n.vx * 0.85;
+        n.y += n.vy * 0.85;
+        n.vx *= 0.75;
+        n.vy *= 0.75;
+        // Keep within bounds
+        n.x = Math.max(20, Math.min(width - 20, n.x));
+        n.y = Math.max(20, Math.min(height - 20, n.y));
+      });
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, width, height);
+
+      // Draw edges
+      nonLinearEdges.forEach(e => {
+        const u = nodeMap.get(e.source), v = nodeMap.get(e.target);
+        if (!u || !v) return;
+        const isHighlight = (selectedNode && (u.id === selectedNode.id || v.id === selectedNode.id)) ||
+                            (hoveredNode && (u.id === hoveredNode.id || v.id === hoveredNode.id));
+
+        ctx.beginPath();
+        ctx.moveTo(u.x, u.y);
+        ctx.lineTo(v.x, v.y);
+        ctx.strokeStyle = COLOR[e.type] || '#4d82ff';
+        ctx.lineWidth = isHighlight ? 2.5 : (e.type === 'parent' ? 0.8 : 1.4);
+        ctx.globalAlpha = isHighlight ? 1.0 : (e.type === 'parent' ? 0.35 : 0.7);
+        ctx.stroke();
+        ctx.globalAlpha = 1.0;
+      });
+
+      // Draw nodes
+      nodes.forEach(n => {
+        const isSel = selectedNode && selectedNode.id === n.id;
+        const isHov = hoveredNode && hoveredNode.id === n.id;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r + (isSel ? 3 : 0), 0, Math.PI * 2);
+        ctx.fillStyle = KIND_COLOR[n.kind] || '#94a3b8';
+        ctx.fill();
+        ctx.lineWidth = isSel || isHov ? 2.5 : 1.2;
+        ctx.strokeStyle = isSel ? '#ffffff' : '#0d1628';
+        ctx.stroke();
+
+        if (n.r >= 8 || isSel || isHov) {
+          ctx.font = '10px "JetBrains Mono", monospace';
+          ctx.fillStyle = isSel ? '#ffffff' : '#94a3b8';
+          ctx.fillText(n.id, n.x + n.r + 4, n.y + 3);
+        }
+      });
+    }
+
+    let animFrame;
+    function loop() {
+      stepSimulation();
+      draw();
+      animFrame = requestAnimationFrame(loop);
+    }
+    loop();
+
+    function findNodeAt(mx, my) {
+      return nodes.find(n => Math.hypot(n.x - mx, n.y - my) <= n.r + 4);
+    }
+
+    canvas.addEventListener('mousemove', e => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      if (isDragging && selectedNode) {
+        selectedNode.x = mx;
+        selectedNode.y = my;
+        return;
+      }
+      const hit = findNodeAt(mx, my);
+      if (hit !== hoveredNode) {
+        hoveredNode = hit;
+        canvas.style.cursor = hit ? 'pointer' : 'grab';
+        if (hit && inspector) {
+          const rels = nonLinearEdges.filter(ed => ed.source === hit.id || ed.target === hit.id);
+          inspector.textContent = `${hit.id} (${hit.kind}): ${hit.text.slice(0, 45)}… [${rels.length} relations]`;
+        }
+      }
+    });
+
+    canvas.addEventListener('mousedown', e => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const hit = findNodeAt(mx, my);
+      if (hit) {
+        selectedNode = hit;
+        isDragging = true;
+        canvas.style.cursor = 'grabbing';
+        if (inspector) {
+          const rels = nonLinearEdges.filter(ed => ed.source === hit.id || ed.target === hit.id);
+          const relDesc = rels.map(r => `${r.type} → ${r.source === hit.id ? r.target : r.source}`).join(', ');
+          inspector.innerHTML = `<strong>${hit.id}</strong> (${hit.kind}${hit.page ? ' p.'+hit.page : ''}): ${hit.text.slice(0, 60)}… <span class="text-blue-300">[${relDesc || 'no cross-edges'}]</span>`;
+        }
+      } else {
+        selectedNode = null;
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      isDragging = false;
+      canvas.style.cursor = hoveredNode ? 'pointer' : 'grab';
+    });
+  }
+
+  // ── 2. Arc Diagram Rendering ──
+  const svg = document.getElementById('arc');
+  if (svg) {
+    const idx = new Map(g.nodes.map((n, i) => [n.id, i]));
+    const W = Math.max(640, g.nodes.length * 9), H = 190, BASE = 150, PAD = 16;
+    const x = i => PAD + (i * (W - 2 * PAD)) / Math.max(1, g.nodes.length - 1);
+    const ns = 'http://www.w3.org/2000/svg';
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('style', `min-width:${W}px`);
+
+    const axis = document.createElementNS(ns, 'line');
+    axis.setAttribute('x1', PAD); axis.setAttribute('x2', W - PAD);
+    axis.setAttribute('y1', BASE); axis.setAttribute('y2', BASE);
+    axis.setAttribute('stroke', '#1a2743'); axis.setAttribute('stroke-width', 1);
+    svg.appendChild(axis);
+
+    for (const e of g.edges) {
+      if (e.type === 'next' || e.type === 'previous') continue;
+      const a = idx.get(e.source), b = idx.get(e.target);
+      if (a === undefined || b === undefined) continue;
+      const x1 = x(a), x2 = x(b), r = Math.abs(x2 - x1) / 2;
+      const h = Math.min(BASE - 14, Math.max(14, r * 0.85));
+      const p = document.createElementNS(ns, 'path');
+      p.setAttribute('d', `M ${x1} ${BASE} A ${r} ${h} 0 0 ${x2 > x1 ? 1 : 0} ${x2} ${BASE}`);
+      p.setAttribute('fill', 'none');
+      p.setAttribute('stroke', COLOR[e.type] || '#3d4a68');
+      p.setAttribute('stroke-width', e.type === 'parent' ? .6 : 1.4);
+      p.setAttribute('opacity', e.type === 'parent' ? .3 : .8);
+      p.appendChild(Object.assign(document.createElementNS(ns, 'title'),
+        {textContent: `${e.type} (${e.confidence})\n${e.evidence || ''}`}));
+      svg.appendChild(p);
+    }
+    g.nodes.forEach((n, i) => {
+      const c = document.createElementNS(ns, 'circle');
+      c.setAttribute('cx', x(i)); c.setAttribute('cy', BASE);
+      c.setAttribute('r', ['table','figure','heading'].includes(n.kind) ? 3.4 : 2);
+      c.setAttribute('fill', KIND_COLOR[n.kind] || '#3d4a68');
+      c.appendChild(Object.assign(document.createElementNS(ns, 'title'),
+        {textContent: `${n.id} · ${n.kind}${n.page ? ' · p.' + n.page : ''}\n${n.text}`}));
+      svg.appendChild(c);
+    });
+    const label = document.createElementNS(ns, 'text');
+    label.setAttribute('x', PAD); label.setAttribute('y', BASE + 24);
+    label.setAttribute('fill', '#64748f'); label.setAttribute('font-size', '10');
+    label.setAttribute('font-family', 'Inter, sans-serif');
+    label.textContent = 'reading order →';
+    svg.appendChild(label);
+  }
 })();
 </script>

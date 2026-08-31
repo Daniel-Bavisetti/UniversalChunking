@@ -9,7 +9,6 @@ without destroying meaning, context, relationships, or attribution.
 from __future__ import annotations
 
 import logging
-import math
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -20,7 +19,6 @@ from .models import (
     BoundaryCandidate,
     ContentElement,
     Modality,
-    Profile,
     count_tokens,
 )
 
@@ -227,7 +225,6 @@ def choose_universal_cut(
     """
     cfg = settings()
     target = target_tokens or cfg.target_chunk_tokens
-    limit = max_tokens or cfg.max_chunk_tokens
 
     if len(region) < 2:
         return UniversalCutResult(index=None, overflow=True)
@@ -244,7 +241,8 @@ def choose_universal_cut(
 
     for cand in candidates:
         idx = cand.index
-        assert idx is not None
+        if idx is None:
+            continue
         left_ids = {e.id for e in region[:idx]}
         right_ids = {e.id for e in region[idx:]}
         toks_before = sum(tokens[:idx])

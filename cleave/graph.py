@@ -152,23 +152,28 @@ class ContextGraph:
         for i, e in enumerate(self.elements):
             if e.kind in ("table", "figure") and i > 0:
                 prev = self.elements[i - 1]
-                if prev.kind in ("paragraph", "list_item") and len(prev.text) > 20:
-                    if not self.g.has_edge(prev.id, e.id):
-                        self._add(prev.id, e.id, "explains", 0.85,
-                                  f"prose introduces adjacent {e.kind}", importance=0.85)
-                        self._add(e.id, prev.id, "illustrated_by", 0.85,
-                                  f"{e.kind} illustrated by preceding prose", importance=0.85)
+                if (
+                    prev.kind in ("paragraph", "list_item")
+                    and len(prev.text) > 20
+                    and not self.g.has_edge(prev.id, e.id)
+                ):
+                    self._add(prev.id, e.id, "explains", 0.85,
+                              f"prose introduces adjacent {e.kind}", importance=0.85)
+                    self._add(e.id, prev.id, "illustrated_by", 0.85,
+                              f"{e.kind} illustrated by preceding prose", importance=0.85)
 
     def _conversational_edges(self) -> None:
         """Detect question-answer and dialogue dependencies in speech or prose."""
         for i in range(len(self.elements) - 1):
             a, b = self.elements[i], self.elements[i + 1]
-            if a.text.strip().endswith("?") or any(rx.search(a.text) for rx in _QA_PATTERNS):
-                if b.kind in ("speech_segment", "paragraph"):
-                    self._add(a.id, b.id, "answered_by", 0.90,
-                              "question answered by following element", importance=0.90)
-                    self._add(b.id, a.id, "question_for", 0.90,
-                              "answer directly addresses question", importance=0.90)
+            if (
+                (a.text.strip().endswith("?") or any(rx.search(a.text) for rx in _QA_PATTERNS))
+                and b.kind in ("speech_segment", "paragraph")
+            ):
+                self._add(a.id, b.id, "answered_by", 0.90,
+                          "question answered by following element", importance=0.90)
+                self._add(b.id, a.id, "question_for", 0.90,
+                          "answer directly addresses question", importance=0.90)
 
     def _multimodal_edges(self) -> None:
         """Detect temporal overlap and visual co-occurrence in video/audio."""
@@ -265,10 +270,6 @@ class ContextGraph:
         if el_a_id not in self.g or el_b_id not in self.g:
             return 1.0
         # If directly connected by non-next edge, separation is very low
-        non_next_edges = [
-            d for _, _, d in self.g.edges([el_a_id, el_b_id], data=True)
-            if d.get("type") not in ("next", "previous")
-        ]
         if any(self.g.has_edge(el_a_id, el_b_id) or self.g.has_edge(el_b_id, el_a_id) for _ in [1]):
             direct_d = self.g.get_edge_data(el_a_id, el_b_id) or self.g.get_edge_data(el_b_id, el_a_id)
             if direct_d and direct_d.get("type") not in ("next", "previous"):

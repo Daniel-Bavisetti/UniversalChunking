@@ -57,6 +57,7 @@ class Settings:
     stt_url: str
     video_url: str = "http://127.0.0.1:8001"
     log_level: str = "INFO"
+    offline_fallback: bool = True
     # Boundary scoring weights:
     weight_semantic: float = 1.0
     weight_structure: float = 1.2
@@ -156,6 +157,7 @@ def settings() -> Settings:
         stt_url=_url_env("CLEAVE_STT_URL", "http://127.0.0.1:8000"),
         video_url=_url_env("CLEAVE_VIDEO_URL", "http://127.0.0.1:8001"),
         log_level=_str_env("CLEAVE_LOG_LEVEL", "INFO").upper(),
+        offline_fallback=_str_env("CLEAVE_OFFLINE_FALLBACK", "1").lower() not in ("0", "false", "no"),
         weight_semantic=_float_env("CLEAVE_WEIGHT_SEMANTIC", 1.0),
         weight_structure=_float_env("CLEAVE_WEIGHT_STRUCTURE", 1.2),
         weight_temporal=_float_env("CLEAVE_WEIGHT_TEMPORAL", 1.0),

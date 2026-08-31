@@ -15,28 +15,21 @@ Tests cover:
 
 from __future__ import annotations
 
-import pytest
-
-from cleave.boundary_engine import (
-    generate_candidates_for_region,
-    choose_universal_cut,
-    score_candidate,
-)
+from cleave.boundary_engine import generate_candidates_for_region
 from cleave.chunkers import chunk
-from cleave.completeness import evaluate_context_completeness, enrich_context_completeness
+from cleave.completeness import enrich_context_completeness, evaluate_context_completeness
 from cleave.conversational import classify_conversational_elements
 from cleave.evaluate import (
     boundary_coherence_score,
-    context_completeness_score,
-    relationship_preservation_rate,
-    fragmentation_rate,
     chunk_size_variance,
+    context_completeness_score,
+    fragmentation_rate,
+    relationship_preservation_rate,
     retrieval_evaluation,
 )
 from cleave.graph import ContextGraph
 from cleave.ingest_document import IngestResult
 from cleave.models import (
-    BoundaryCandidate,
     ContentElement,
     Context,
     KnowledgeUnit,
@@ -99,7 +92,7 @@ def test_caption_float_severance_is_hard_veto():
     candidates = generate_candidates_for_region(elements, graph)
 
     # Candidate between cap1 and fig1 (index 2 in region)
-    cand_cap_fig = [c for c in candidates if c.left_element_id == "cap1" and c.right_element_id == "fig1"][0]
+    cand_cap_fig = next(c for c in candidates if c.left_element_id == "cap1" and c.right_element_id == "fig1")
     assert any("sever" in v for v in cand_cap_fig.veto_reasons)
 
 
@@ -112,7 +105,7 @@ def test_list_items_treated_as_soft_boundaries():
     graph = ContextGraph(elements)
     candidates = generate_candidates_for_region(elements, graph)
 
-    cand_list = [c for c in candidates if c.left_element_id == "li1" and c.right_element_id == "li2"][0]
+    cand_list = next(c for c in candidates if c.left_element_id == "li1" and c.right_element_id == "li2")
     assert cand_list.is_soft is True
     assert cand_list.signals.get("list_continuation") == 1.0
 

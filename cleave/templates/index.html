@@ -173,6 +173,34 @@
       Cleave can, and refuses to cut through them.
     </p>
     {% endif %}
+
+    {% if scorecard.retrieval_benchmark %}
+    {% set rb = scorecard.retrieval_benchmark %}
+    <div class="card mt-4 p-5 border-teal-400/30" style="background:linear-gradient(180deg,rgba(45,212,191,.06),transparent 65%),var(--surface)">
+      <div class="flex flex-wrap items-baseline justify-between gap-2">
+        <span class="label !text-teal-300">Empirical RAG Retrieval Benchmark</span>
+        <span class="text-[11.5px] text-[color:var(--muted)]">{{ rb.queries_evaluated }} QA queries evaluated across tables, captions & hierarchy</span>
+      </div>
+      <div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4 text-center">
+        <div class="card-quiet p-3">
+          <div class="stat text-xl font-bold text-white">{{ (rb.cleave.recall_at_5 * 100)|round|int }}%</div>
+          <div class="label mt-1 !text-[9.5px]">Cleave Recall@5</div>
+        </div>
+        <div class="card-quiet p-3">
+          <div class="stat text-xl font-bold text-[color:var(--muted)]">{{ (rb.fixed.recall_at_5 * 100)|round|int }}%</div>
+          <div class="label mt-1 !text-[9.5px]">Fixed Recall@5</div>
+        </div>
+        <div class="card-quiet p-3">
+          <div class="stat text-xl font-bold text-teal-300">{{ rb.cleave.mrr }}</div>
+          <div class="label mt-1 !text-[9.5px]">Cleave MRR</div>
+        </div>
+        <div class="card-quiet p-3">
+          <div class="stat text-xl font-bold text-emerald-400">+{{ rb.mrr_lift_pct }}%</div>
+          <div class="label mt-1 !text-[9.5px]">Retrieval Lift (MRR)</div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
   </section>
   {% endif %}
 

@@ -114,3 +114,34 @@ def test_a_job_where_everything_fails_is_still_an_error(monkeypatch, tmp_data_di
 
     assert job.status == "error"
     assert "every input failed" in (job.error or "")
+
+
+# ───────── offline fallback mode ─────────
+
+def test_offline_fallback_allows_audio_ingestion_when_stt_is_down(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLEAVE_OFFLINE_FALLBACK", "1")
+    from cleave import config
+    config.reload()
+    audio = tmp_path / "meeting_notes.m4a"
+    audio.write_bytes(b"audio-bytes")
+    _install(monkeypatch, lambda r: (_ for _ in ()).throw(httpx.ConnectError("refused", request=r)))
+
+    res = ingest_audio(audio)
+    assert len(res.elements) > 0
+    assert any("SPEAKER" in str(e.speaker) for e in res.elements)
+
+
+def test_offline_fallback_allows_video_ingestion_when_workers_are_down(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLEAVE_OFFLINE_FALLBACK", "1")
+    from cleave import config
+    config.reload()
+    from cleave.ingest_video import ingest_video
+    video = tmp_path / "IMG_8966 - Trim.mp4"
+    video.write_bytes(b"video-bytes")
+    _install(monkeypatch, lambda r: (_ for _ in ()).throw(httpx.ConnectError("refused", request=r)))
+
+    res = ingest_video(video)
+    assert len(res.elements) > 0
+    assert any(e.kind == "visual_event" for e in res.elements)
+    assert any(e.kind == "speech_segment" for e in res.elements)
+    assert "IMG_8966 - Trim" in res.title

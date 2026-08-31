@@ -199,3 +199,62 @@ def test_rehydrate_skips_a_corrupt_profile_without_crashing(tmp_data_dir):
 
     assert "good000000" in jobs_mod.JOBS
     assert "bad0000000" not in jobs_mod.JOBS
+
+
+# ───────── image uploads & export formats ─────────
+
+def test_image_uploads_are_accepted(client, tmp_data_dir, monkeypatch):
+    monkeypatch.setattr("cleave.pipeline.run_job", lambda *a, **k: None)
+    resp = _upload(client, "diagram.png", b"\x89PNG\r\n\x1a\nfake-image-bytes")
+    assert resp.status_code == 303
+    written = [p.name for p in tmp_data_dir.rglob("*") if p.is_file()]
+    assert "diagram.png" in written
+
+
+def test_export_formats_return_structured_payloads(client, tmp_data_dir):
+    job = jobs_mod.Job(id="exp1234567", filename="doc.pdf", status="done", progress=100)
+    jobs_mod.JOBS[job.id] = job
+    job.dir.mkdir(parents=True, exist_ok=True)
+    sample_units = [{
+        "id": "ku_0001",
+        "content": "Sample chunk content",
+        "embed_text": "Overview > Section 1\n\nSample chunk content",
+        "modality": "document",
+        "context": {"heading_path": ["Overview", "Section 1"], "document_title": "Test Doc"},
+        "provenance": {"source_uri": "doc.pdf"},
+        "decision": {"strategy": "structural", "reason": "section under budget"},
+        "knowledge_unit_type": "section",
+        "context_completeness": 1.0,
+        "relationships": [{"type": "references", "target_id": "ku_0002"}],
+        "token_count": 25,
+    }]
+    (job.dir / "units.json").write_text(json.dumps(sample_units))
+
+    # 1. LangChain export
+    lc_resp = client.get(f"/api/jobs/{job.id}/export?format=langchain")
+    assert lc_resp.status_code == 200
+    lc_data = lc_resp.json()
+    assert len(lc_data) == 1
+    assert "page_content" in lc_data[0]
+    assert lc_data[0]["metadata"]["id"] == "ku_0001"
+
+    # 2. LlamaIndex export
+    llama_resp = client.get(f"/api/jobs/{job.id}/export?format=llamaindex")
+    assert llama_resp.status_code == 200
+    llama_data = llama_resp.json()
+    assert len(llama_data) == 1
+    assert llama_data[0]["id_"] == "ku_0001"
+    assert llama_data[0]["relationships"]["references"] == "ku_0002"
+
+    # 3. Qdrant export
+    qdrant_resp = client.get(f"/api/jobs/{job.id}/export?format=qdrant")
+    assert qdrant_resp.status_code == 200
+    qdrant_data = qdrant_resp.json()
+    assert qdrant_data[0]["payload"]["document"] == sample_units[0]["embed_text"]
+
+    # 4. Chroma export
+    chroma_resp = client.get(f"/api/jobs/{job.id}/export?format=chroma")
+    assert chroma_resp.status_code == 200
+    chroma_data = chroma_resp.json()
+    assert chroma_data["ids"] == ["ku_0001"]
+

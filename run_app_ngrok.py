@@ -1,8 +1,9 @@
 """Start Cleave server and expose it via ngrok."""
+import contextlib
+import socket
 import subprocess
 import sys
 import time
-import socket
 
 
 def is_port_in_use(port: int) -> bool:
@@ -59,7 +60,7 @@ def main():
 
     # 4. Connect ngrok
     try:
-        from pyngrok import ngrok, conf
+        from pyngrok import conf, ngrok
 
         pyngrok_config = conf.get_default()
         pyngrok_config.auth_token = "3ACmVoldN0XsN3AO9TSe1RV1ER0_hkuXUPGWa1qi28qXP57p"
@@ -76,10 +77,8 @@ def main():
     finally:
         # Cleanup
         print("Shutting down...")
-        try:
+        with contextlib.suppress(Exception):
             ngrok.kill()
-        except Exception:
-            pass
         server.kill()
         print("Done.")
 

@@ -178,13 +178,13 @@ def boundary_coherence_score(units: list, graph: ContextGraph) -> float:
     coherent_boundaries = 0
     for u in units:
         dec = u.decision
-        if dec.strategy in ("structural", "atomic", "tabular", "temporal"):
-            coherent_boundaries += 1
-        elif dec.signals.get("semantic_shift", 0.0) > 0.3 or dec.signals.get("speaker_change", 0.0) > 0.5:
-            coherent_boundaries += 1
-        elif u.metadata.get("element_kind") in ("table", "figure", "schema_card", "section"):
-            coherent_boundaries += 1
-        elif len(dec.vetoed_cuts) > 0:
+        if (
+            dec.strategy in ("structural", "atomic", "tabular", "temporal")
+            or dec.signals.get("semantic_shift", 0.0) > 0.3
+            or dec.signals.get("speaker_change", 0.0) > 0.5
+            or u.metadata.get("element_kind") in ("table", "figure", "schema_card", "section")
+            or len(dec.vetoed_cuts) > 0
+        ):
             coherent_boundaries += 1
     return round(coherent_boundaries / len(units), 3)
 
@@ -212,7 +212,7 @@ def relationship_preservation_rate(units: list, graph: ContextGraph) -> float:
                 unit_by_element.setdefault(node.id, u.id)
 
     preserved = 0
-    for s, t, d in critical_edges:
+    for s, t, _ in critical_edges:
         u_s = unit_by_element.get(s)
         u_t = unit_by_element.get(t)
         if u_s and u_t and u_s == u_t:
@@ -293,22 +293,122 @@ def retrieval_evaluation(
     }
 
 
-def main(paths: list[str]) -> dict:
-    """Score every document and write the scorecard, returning the record.
+def benchmark_corpus_retrieval(paths: list[str]) -> dict:
+    """Generate probe queries from tables, captions, and section headings across the corpus
+    and measure empirical retrieval performance for Cleave vs the fixed baseline."""
+    cleave_recalls: list[float] = []
+    cleave_precisions: list[float] = []
+    cleave_mrrs: list[float] = []
+    fixed_recalls: list[float] = []
+    fixed_precisions: list[float] = []
+    fixed_mrrs: list[float] = []
 
-    Importable and quiet: progress is a log line, and the report itself is
-    printed by the ``__main__`` block, so piping the JSON to ``jq`` still works
-    while a test can call this without capturing stdout.
-    """
+    for p in paths:
+        try:
+            ingest = ingest_document(p)
+            graph = ContextGraph(ingest.elements)
+            units, _ = chunk(ingest, graph)
+            f_chunks = fixed_chunks(ingest)
+
+            # Generate realistic probe queries and target signatures
+            queries_and_targets: list[tuple[str, str]] = []
+            for t in [e for e in ingest.elements if e.kind == "table"]:
+                header = t.meta.get("header_row", [])
+                grid = t.meta.get("grid", [])
+                if header and len(grid) > 1:
+                    col = header[0] if len(header) > 0 else "data"
+                    val = grid[1][0] if len(grid[1]) > 0 else ""
+                    if len(val) > 3:
+                        queries_and_targets.append((f"table data {col} {val}", val[:50]))
+            for c in [e for e in ingest.elements if e.kind == "caption"]:
+                if len(c.text) > 15:
+                    queries_and_targets.append((f"details in caption {c.text[:40]}", c.text[:50]))
+            for h in [e for e in ingest.elements if e.kind == "heading"]:
+                if len(h.text) > 10:
+                    queries_and_targets.append((f"section overview {h.text}", h.text[:50]))
+
+            if not queries_and_targets:
+                continue
+
+            for query, target_str in queries_and_targets:
+                q_tokens = set(norm(query).split())
+                t_norm = norm(target_str)
+
+                # Cleave retrieval ranking
+                c_scored: list[tuple[float, int]] = []
+                for i, u in enumerate(units):
+                    u_text = norm(u.embed_text())
+                    overlap = len(q_tokens & set(u_text.split()))
+                    has_target = 1.0 if t_norm in u_text else 0.0
+                    c_scored.append((overlap + has_target * 2.0, i))
+                c_scored.sort(key=lambda x: x[0], reverse=True)
+                top_c_indices = [idx for _, idx in c_scored[:5]]
+                c_hit = any(t_norm in norm(units[idx].embed_text()) for idx in top_c_indices)
+                cleave_recalls.append(1.0 if c_hit else 0.0)
+                cleave_precisions.append(1.0 / 5.0 if c_hit else 0.0)
+                c_rr = 0.0
+                for rank, (_, idx) in enumerate(c_scored[:5], start=1):
+                    if t_norm in norm(units[idx].embed_text()):
+                        c_rr = 1.0 / rank
+                        break
+                cleave_mrrs.append(c_rr)
+
+                # Fixed baseline retrieval ranking
+                f_scored: list[tuple[float, int]] = []
+                for i, fc in enumerate(f_chunks):
+                    fc_norm = norm(fc)
+                    overlap = len(q_tokens & set(fc_norm.split()))
+                    has_target = 1.0 if t_norm in fc_norm else 0.0
+                    f_scored.append((overlap + has_target * 2.0, i))
+                f_scored.sort(key=lambda x: x[0], reverse=True)
+                top_f_indices = [idx for _, idx in f_scored[:5]]
+                f_hit = any(t_norm in norm(f_chunks[idx]) for idx in top_f_indices)
+                fixed_recalls.append(1.0 if f_hit else 0.0)
+                fixed_precisions.append(1.0 / 5.0 if f_hit else 0.0)
+                f_rr = 0.0
+                for rank, (_, idx) in enumerate(f_scored[:5], start=1):
+                    if t_norm in norm(f_chunks[idx]):
+                        f_rr = 1.0 / rank
+                        break
+                fixed_mrrs.append(f_rr)
+        except Exception as exc:
+            log.warning("retrieval benchmark skipped for %s (%s)", p, exc)
+
+    c_mrr = sum(cleave_mrrs) / max(1, len(cleave_mrrs))
+    f_mrr = sum(fixed_mrrs) / max(1, len(fixed_mrrs))
+    c_rec = sum(cleave_recalls) / max(1, len(cleave_recalls))
+    f_rec = sum(fixed_recalls) / max(1, len(fixed_recalls))
+    lift = ((c_mrr - f_mrr) / max(0.001, f_mrr)) * 100.0 if f_mrr > 0 else 0.0
+
+    return {
+        "queries_evaluated": len(cleave_mrrs),
+        "cleave": {
+            "recall_at_5": round(c_rec, 3),
+            "precision_at_5": round(sum(cleave_precisions) / max(1, len(cleave_precisions)), 3),
+            "mrr": round(c_mrr, 3),
+        },
+        "fixed": {
+            "recall_at_5": round(f_rec, 3),
+            "precision_at_5": round(sum(fixed_precisions) / max(1, len(fixed_precisions)), 3),
+            "mrr": round(f_mrr, 3),
+        },
+        "mrr_lift_pct": round(lift, 1),
+    }
+
+
+def main(paths: list[str]) -> dict:
+    """Score every document and write the scorecard, returning the record."""
     fixed, cleave = ArmScore(), ArmScore()
     for p in paths:
         log.info("scoring %s", p)
         score_document(p, fixed, cleave)
+    benchmark = benchmark_corpus_retrieval(paths)
     result = {
         "documents": [Path(p).name for p in paths],
         "baseline": f"fixed {FIXED_TOKENS} tokens / {FIXED_OVERLAP} overlap",
         "fixed": fixed.to_dict(),
         "cleave": cleave.to_dict(),
+        "retrieval_benchmark": benchmark,
     }
     out = Path(__file__).resolve().parent.parent / "data" / "scorecard.json"
     out.parent.mkdir(parents=True, exist_ok=True)

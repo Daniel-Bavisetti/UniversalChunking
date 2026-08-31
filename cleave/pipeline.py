@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from .logging_setup import current_job_id
+from .models import Relationship, RelationType
 from .web.jobs import JOBS, Job, set_progress
 
 log = logging.getLogger(__name__)
@@ -93,6 +94,9 @@ def run_job(job_id: str, input_paths: list[Path]) -> None:
         if failures and not files_meta:
             detail = "; ".join(f"{name}: {err}" for name, err in failures)
             raise RuntimeError(f"every input failed — {detail}")
+
+        if len(files_meta) > 1:
+            _link_cross_document_relationships(all_units, files_meta, graph_edges)
 
         set_progress(job, 90, f"{len(all_units)} knowledge units — writing artifacts…")
         graph = ({"nodes": graph_nodes, "edges": graph_edges}
@@ -304,3 +308,44 @@ def _write_artifacts(job: Job, units, files_meta: list[dict], graph: dict | None
 
     if ledger is not None and ledger.total_calls:
         append_to_cumulative(ledger, job.id)
+
+
+def _link_cross_document_relationships(units: list, files_meta: list[dict], graph_edges: list) -> None:
+    """When a job contains multiple files, detect cross-document references and establish
+    typed relationships between units across different uploaded files."""
+    file_anchors: dict[str, str] = {}
+    for u in units:
+        # Find primary anchors for each file (schema cards, section heads, or first unit)
+        fname = Path(u.provenance.source_uri).name if u.provenance and u.provenance.source_uri else ""
+        if not fname:
+            continue
+        if fname not in file_anchors or u.knowledge_unit_type in ("schema_card", "section"):
+            file_anchors[fname] = u.id
+
+    for u in units:
+        src_fname = Path(u.provenance.source_uri).name if u.provenance and u.provenance.source_uri else ""
+        content_lower = u.content.lower()
+        for target_fname, target_uid in file_anchors.items():
+            if target_fname == src_fname or target_uid == u.id:
+                continue
+            stem = Path(target_fname).stem.lower()
+            if (
+                len(stem) > 3
+                and (target_fname.lower() in content_lower or stem in content_lower)
+                and not any(r.target_id == target_uid for r in u.relationships)
+            ):
+                # Found cross-document reference
+                u.relationships.append(Relationship(
+                    type=RelationType.REFERENCES,
+                    target_id=target_uid,
+                    confidence=0.85,
+                    evidence=f"cross-document mention of {target_fname}",
+                ))
+                graph_edges.append({
+                    "source": u.id,
+                    "target": target_uid,
+                    "type": "references",
+                    "confidence": 0.85,
+                    "evidence": f"cross-document mention of {target_fname}",
+                    "importance": 0.80,
+                })

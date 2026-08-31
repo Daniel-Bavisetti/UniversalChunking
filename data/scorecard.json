@@ -5,27 +5,27 @@
  ],
  "baseline": "fixed 512 tokens / 64 overlap",
  "fixed": {
-  "cps_pct": 29.5,
+  "cps_pct": 31.3,
   "metrics": [
    {
     "name": "caption integrity",
+    "preserved": 0,
+    "total": 1
+   },
+   {
+    "name": "header integrity",
     "preserved": 1,
     "total": 4
    },
    {
-    "name": "header integrity",
-    "preserved": 2,
-    "total": 9
-   },
-   {
     "name": "heading context",
-    "preserved": 55,
-    "total": 99
+    "preserved": 41,
+    "total": 68
    },
    {
     "name": "resolved references",
     "preserved": 2,
-    "total": 13
+    "total": 5
    }
   ]
  },
@@ -34,24 +34,38 @@
   "metrics": [
    {
     "name": "caption integrity",
+    "preserved": 1,
+    "total": 1
+   },
+   {
+    "name": "header integrity",
     "preserved": 4,
     "total": 4
    },
    {
-    "name": "header integrity",
-    "preserved": 9,
-    "total": 9
-   },
-   {
     "name": "heading context",
-    "preserved": 99,
-    "total": 99
+    "preserved": 68,
+    "total": 68
    },
    {
     "name": "resolved references",
-    "preserved": 13,
-    "total": 13
+    "preserved": 5,
+    "total": 5
    }
   ]
+ },
+ "retrieval_benchmark": {
+  "queries_evaluated": 29,
+  "cleave": {
+   "recall_at_5": 1.0,
+   "precision_at_5": 0.2,
+   "mrr": 1.0
+  },
+  "fixed": {
+   "recall_at_5": 1.0,
+   "precision_at_5": 0.2,
+   "mrr": 1.0
+  },
+  "mrr_lift_pct": 0.0
  }
 }

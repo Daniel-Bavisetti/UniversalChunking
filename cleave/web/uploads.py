@@ -22,10 +22,11 @@ MAX_FILES = 20                         # per job
 MAX_TOTAL_UPLOAD = 200 * 1024 * 1024   # per job, across all files
 
 DOC_EXTS = {".pdf", ".docx", ".pptx", ".xlsx", ".csv", ".html", ".htm", ".md", ".txt"}
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".tiff", ".bmp"}
 AUDIO_EXTS = {".mp3", ".m4a", ".wav", ".aac", ".flac", ".ogg"}
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi"}
 CONTRACT_EXTS = {".json"}     # payloads from external modality workers (CONTRACT.md)
-ALLOWED_EXTS = DOC_EXTS | AUDIO_EXTS | VIDEO_EXTS | CONTRACT_EXTS
+ALLOWED_EXTS = DOC_EXTS | IMAGE_EXTS | AUDIO_EXTS | VIDEO_EXTS | CONTRACT_EXTS
 
 
 def safe_upload_name(raw: str | None, index: int) -> str:

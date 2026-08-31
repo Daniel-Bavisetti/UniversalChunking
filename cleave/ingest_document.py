@@ -18,8 +18,9 @@ from .models import ContentElement, count_tokens, sha256_of
 
 log = logging.getLogger(__name__)
 
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".tiff", ".bmp"}
 _DOC_EXTS = {".pdf", ".docx", ".pptx", ".xlsx", ".csv", ".html", ".htm", ".md", ".txt",
-             ".asciidoc"}
+             ".asciidoc"} | _IMAGE_EXTS
 _SPREADSHEET_EXTS = {".xlsx", ".csv"}
 
 
@@ -247,6 +248,8 @@ def ingest_document(path: str | Path) -> IngestResult:
     if path.suffix.lower() in _SPREADSHEET_EXTS:
         title = title or path.stem
         _label_sheets(path, elements, warnings)
+    elif path.suffix.lower() in _IMAGE_EXTS:
+        title = title or path.stem
 
     # Normalise before anything measures or splits: token counts, routing
     # signals and boundaries should all describe the text that will actually be
@@ -255,6 +258,11 @@ def ingest_document(path: str | Path) -> IngestResult:
 
     report = clean_elements(elements)
     elements = [e for e in elements if e.text or e.kind in ("figure", "table")]
+    if not elements and path.suffix.lower() in _IMAGE_EXTS:
+        elements.append(ContentElement(
+            id="el_0000", kind="figure", text=f"[{path.name} visual diagram / image]",
+            page=1, meta={"is_image": True},
+        ))
     if title:
         title = clean_text_value(title)
 

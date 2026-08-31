@@ -10,7 +10,9 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
+from .boundary_engine import choose_universal_cut
 from .graph import ContextGraph
 from .models import ContentElement, Profile, count_tokens
 
@@ -99,9 +101,6 @@ def _route(p: Profile) -> tuple[str, str]:
     except Exception as exc:
         log.warning("semantic availability probe failed (%s) — routing to paragraph_fallback", exc)
     return "paragraph_fallback", base_reason + ", packing at paragraph boundaries"
-
-
-from .boundary_engine import choose_universal_cut
 
 
 # ───────── cut selection with universal boundary engine and hard vetoes ─────────

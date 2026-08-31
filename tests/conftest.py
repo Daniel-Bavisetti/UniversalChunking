@@ -30,6 +30,7 @@ _ENV_VARS = (
     "CLEAVE_LLM", "GEMINI_API_KEY", "GEMINI_MODEL", "CLEAVE_OLLAMA_URL",
     "CLEAVE_OLLAMA_MODEL", "CLEAVE_LLM_TIMEOUT", "CLEAVE_ENRICH_BATCH",
     "CLEAVE_ENRICH_DOC_CHARS", "CLEAVE_STT_URL", "CLEAVE_LOG_LEVEL",
+    "CLEAVE_OFFLINE_FALLBACK",
 )
 
 
@@ -44,6 +45,7 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch):
     for var in _ENV_VARS:
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("CLEAVE_LLM", "none")
+    monkeypatch.setenv("CLEAVE_OFFLINE_FALLBACK", "0")
     # Do not read the repo's real .env: it may hold a billable key.
     monkeypatch.setattr(config, "_DOTENV_LOADED", True)
     config.reload()
