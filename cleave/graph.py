@@ -1,8 +1,8 @@
 """Context graph: element-level relationships as a logical in-memory graph.
 
-The graph is a means, not the deliverable — it constrains chunk boundaries,
-assembles heading context, and resolves references. Edges carry confidence and
-evidence because those are what the demo (and a downstream consumer) can audit.
+The graph is an active chunking intelligence — it constrains chunk boundaries,
+evaluates relationship loss, assembles heading context, resolves cross-references,
+and computes topological separation scores.
 """
 
 from __future__ import annotations
@@ -22,6 +22,28 @@ _REF_RE = re.compile(r"\b(Table|Figure|Fig\.?)\s+(\d+)", re.IGNORECASE)
 #: max vertical gap (PDF points) for treating a caption as adjacent to a float
 _CAPTION_GAP_PT = 60.0
 
+#: Edge importance weights for calculating relationship loss when boundaries cross edges
+EDGE_IMPORTANCE: dict[str, float] = {
+    "captions": 1.0,
+    "captioned_by": 1.0,
+    "parent": 0.95,
+    "has_schema": 0.90,
+    "schema_of": 0.90,
+    "answered_by": 0.90,
+    "question_for": 0.90,
+    "explains": 0.85,
+    "illustrated_by": 0.85,
+    "occurs_during": 0.80,
+    "occurs_in_scene": 0.80,
+    "slide_content_of": 0.80,
+    "references": 0.75,
+    "next": 0.05,
+}
+
+_QA_PATTERNS = [
+    re.compile(r"^(who|what|where|when|why|how|can|could|would|should|is|are|do|does|did)\b.*\?", re.I),
+]
+
 
 class ContextGraph:
     def __init__(self, elements: list[ContentElement]):
@@ -38,15 +60,20 @@ class ContextGraph:
         self._hierarchy()
         self._captions()
         self._references()
+        self._explains_and_illustrates()
+        self._conversational_edges()
+        self._multimodal_edges()
         self._reading_order()
 
-    def _add(self, src: str, dst: str, type_: str, confidence: float, evidence: str) -> None:
-        self.g.add_edge(src, dst, type=type_, confidence=confidence, evidence=evidence)
+    def _add(self, src: str, dst: str, type_: str, confidence: float, evidence: str,
+             importance: float | None = None) -> None:
+        imp = importance if importance is not None else EDGE_IMPORTANCE.get(type_, 0.5)
+        self.g.add_edge(src, dst, type=type_, confidence=confidence, evidence=evidence, importance=imp)
 
     def _hierarchy(self) -> None:
         for e in self.elements:
             if e.parent_id and e.parent_id in self.by_id:
-                self._add(e.parent_id, e.id, "parent", 1.0, "heading ancestry")
+                self._add(e.parent_id, e.id, "parent", 1.0, "heading ancestry", importance=0.95)
 
     def _captions(self) -> None:
         captions = [e for e in self.elements if e.kind == "caption"]
@@ -57,8 +84,8 @@ class ContextGraph:
                 continue
             for cid in e.meta.get("caption_ids", []):
                 if cid in self.by_id:
-                    self._add(cid, e.id, "captions", 1.0, "Docling caption reference")
-                    self._add(e.id, cid, "captioned_by", 1.0, "Docling caption reference")
+                    self._add(cid, e.id, "captions", 1.0, "Docling caption reference", importance=1.0)
+                    self._add(e.id, cid, "captioned_by", 1.0, "Docling caption reference", importance=1.0)
                     claimed.add(cid)
         # pass 2: bbox adjacency for floats Docling left uncaptioned
         for e in self.elements:
@@ -69,14 +96,14 @@ class ContextGraph:
                 if c.id in claimed or c.page != e.page or not (c.bbox and e.bbox):
                     continue
                 gap = _vertical_gap(e.bbox, c.bbox)
-                if gap <= _CAPTION_GAP_PT and _h_overlap(e.bbox, c.bbox) > 0:
-                    if best is None or gap < best[0]:
-                        best = (gap, c)
+                if (gap <= _CAPTION_GAP_PT and _h_overlap(e.bbox, c.bbox) > 0
+                        and (best is None or gap < best[0])):
+                    best = (gap, c)
             if best:
                 gap, c = best
                 ev = f"bbox adjacency: caption {gap:.0f}pt from {e.kind} on page {e.page}"
-                self._add(c.id, e.id, "captions", 0.8, ev)
-                self._add(e.id, c.id, "captioned_by", 0.8, ev)
+                self._add(c.id, e.id, "captions", 0.8, ev, importance=1.0)
+                self._add(e.id, c.id, "captioned_by", 0.8, ev, importance=1.0)
                 claimed.add(c.id)
                 e.meta.setdefault("caption_ids", []).append(c.id)
 
@@ -86,15 +113,29 @@ class ContextGraph:
         tables = [e for e in self.elements if e.kind == "table"]
         figures = [e for e in self.elements if e.kind == "figure"]
 
-        def resolve(word: str, num: int) -> ContentElement | None:
-            pool = tables if word.lower().startswith("t") else figures
-            stem = "Table" if pool is tables else r"Fig(?:ure)?\.?"
-            label = re.compile(rf"\b{stem}\s+{num}\b", re.I)
+        # Pre-build caption-based index: ("table", N) → float element.
+        # This replaces per-match regex compilation with a single upfront scan.
+        _caption_index: dict[tuple[str, int], ContentElement] = {}
+        _TABLE_LABEL = re.compile(r"\bTable\s+(\d+)\b", re.I)
+        _FIG_LABEL = re.compile(r"\bFig(?:ure)?\.?\s+(\d+)\b", re.I)
+        for pool, label_re, key_prefix in (
+            (tables, _TABLE_LABEL, "table"),
+            (figures, _FIG_LABEL, "figure"),
+        ):
             for f in pool:
                 for cid in f.meta.get("caption_ids", []):
                     cap = self.by_id.get(cid)
-                    if cap and label.search(cap.text):
-                        return f
+                    if cap:
+                        for lm in label_re.finditer(cap.text):
+                            _caption_index.setdefault((key_prefix, int(lm.group(1))), f)
+
+        def resolve(word: str, num: int) -> ContentElement | None:
+            key_prefix = "table" if word.lower().startswith("t") else "figure"
+            hit = _caption_index.get((key_prefix, num))
+            if hit:
+                return hit
+            # ordinal fallback
+            pool = tables if key_prefix == "table" else figures
             return pool[num - 1] if 0 < num <= len(pool) else None
 
         for e in self.elements:
@@ -104,13 +145,55 @@ class ContextGraph:
                 target = resolve(m.group(1), int(m.group(2)))
                 if target and target.id != e.id and not self.g.has_edge(e.id, target.id):
                     self._add(e.id, target.id, "references", 0.9,
-                              f"text mentions {m.group(0)!r}")
+                              f"text mentions {m.group(0)!r}", importance=0.75)
+
+    def _explains_and_illustrates(self) -> None:
+        """Detect prose directly preceding or explaining a table/figure."""
+        for i, e in enumerate(self.elements):
+            if e.kind in ("table", "figure") and i > 0:
+                prev = self.elements[i - 1]
+                if prev.kind in ("paragraph", "list_item") and len(prev.text) > 20:
+                    if not self.g.has_edge(prev.id, e.id):
+                        self._add(prev.id, e.id, "explains", 0.85,
+                                  f"prose introduces adjacent {e.kind}", importance=0.85)
+                        self._add(e.id, prev.id, "illustrated_by", 0.85,
+                                  f"{e.kind} illustrated by preceding prose", importance=0.85)
+
+    def _conversational_edges(self) -> None:
+        """Detect question-answer and dialogue dependencies in speech or prose."""
+        for i in range(len(self.elements) - 1):
+            a, b = self.elements[i], self.elements[i + 1]
+            if a.text.strip().endswith("?") or any(rx.search(a.text) for rx in _QA_PATTERNS):
+                if b.kind in ("speech_segment", "paragraph"):
+                    self._add(a.id, b.id, "answered_by", 0.90,
+                              "question answered by following element", importance=0.90)
+                    self._add(b.id, a.id, "question_for", 0.90,
+                              "answer directly addresses question", importance=0.90)
+
+    def _multimodal_edges(self) -> None:
+        """Detect temporal overlap and visual co-occurrence in video/audio."""
+        visual_events = [e for e in self.elements if e.kind == "visual_event"]
+        speech_segments = [e for e in self.elements if e.kind == "speech_segment"]
+
+        for s in speech_segments:
+            if s.t0 is None or s.t1 is None:
+                continue
+            for v in visual_events:
+                if v.t0 is None or v.t1 is None:
+                    continue
+                # Check for temporal overlap
+                overlap = min(s.t1, v.t1) - max(s.t0, v.t0)
+                if overlap > 0:
+                    self._add(s.id, v.id, "occurs_during", 0.85,
+                              f"speech span ({s.t0:.1f}s–{s.t1:.1f}s) overlaps visual event ({v.t0:.1f}s–{v.t1:.1f}s)",
+                              importance=0.80)
 
     def _reading_order(self) -> None:
         for a, b in zip(self.elements, self.elements[1:]):
-            self._add(a.id, b.id, "next", 1.0, "reading order")
+            if not self.g.has_edge(a.id, b.id):
+                self._add(a.id, b.id, "next", 1.0, "reading order", importance=0.05)
 
-    # ───────── queries ─────────
+    # ───────── queries & graph intelligence ─────────
 
     def heading_path(self, el_id: str) -> list[str]:
         path: list[str] = []
@@ -130,14 +213,7 @@ class ContextGraph:
                 if d["type"] == "captions"]
 
     def surrounding_text(self, el_id: str, max_chars: int = 320) -> tuple[str | None, str | None]:
-        """Nearest prose before and after an element.
-
-        A table lifted out of its page loses the sentence that introduced it —
-        "revenue by region is shown below" is often the only thing that says
-        what the table is for. These windows are context, never content: they
-        ride along in `Context.leading`/`trailing` and are embedded, not shown
-        as the chunk's own text.
-        """
+        """Nearest prose before and after an element."""
         try:
             idx = next(i for i, e in enumerate(self.elements) if e.id == el_id)
         except StopIteration:
@@ -163,6 +239,47 @@ class ContextGraph:
         return [(dst, d) for _, dst, d in self.g.out_edges(el_id, data=True)
                 if d["type"] == "references"]
 
+    def relationship_loss(self, left_ids: set[str], right_ids: set[str]) -> tuple[float, list[str]]:
+        """Calculate the penalty and severed reasons when cutting between left_ids and right_ids.
+
+        Higher loss means a boundary would sever strong relationships (e.g. caption ↔ float,
+        question ↔ answer, explanatory prose ↔ table).
+        """
+        loss = 0.0
+        severed: list[str] = []
+        for src, dst, d in self.g.edges(data=True):
+            edge_type = d.get("type", "")
+            if edge_type in ("next", "previous"):
+                continue  # linear sequence cuts are normal
+            if (src in left_ids and dst in right_ids) or (src in right_ids and dst in left_ids):
+                imp = d.get("importance", EDGE_IMPORTANCE.get(edge_type, 0.5))
+                loss += imp
+                severed.append(f"severs {edge_type} ({src} ↔ {dst}): {d.get('evidence', '')}")
+        return loss, severed
+
+    def graph_separation_score(self, el_a_id: str, el_b_id: str) -> float:
+        """Measure topological separation in the graph between adjacent elements (0.0 to 1.0).
+
+        Returns 1.0 if unconnected or in different branches, 0.0 if strongly interconnected.
+        """
+        if el_a_id not in self.g or el_b_id not in self.g:
+            return 1.0
+        # If directly connected by non-next edge, separation is very low
+        non_next_edges = [
+            d for _, _, d in self.g.edges([el_a_id, el_b_id], data=True)
+            if d.get("type") not in ("next", "previous")
+        ]
+        if any(self.g.has_edge(el_a_id, el_b_id) or self.g.has_edge(el_b_id, el_a_id) for _ in [1]):
+            direct_d = self.g.get_edge_data(el_a_id, el_b_id) or self.g.get_edge_data(el_b_id, el_a_id)
+            if direct_d and direct_d.get("type") not in ("next", "previous"):
+                return 0.1
+        # Check heading ancestry separation
+        path_a = self.heading_path(el_a_id)
+        path_b = self.heading_path(el_b_id)
+        if path_a != path_b:
+            return 0.95
+        return 0.5
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "nodes": [
@@ -172,7 +289,8 @@ class ContextGraph:
             ],
             "edges": [
                 {"source": s, "target": t, "type": d["type"],
-                 "confidence": round(d["confidence"], 3), "evidence": d["evidence"]}
+                 "confidence": round(d["confidence"], 3), "evidence": d["evidence"],
+                 "importance": round(d.get("importance", 0.5), 2)}
                 for s, t, d in self.g.edges(data=True)
             ],
         }

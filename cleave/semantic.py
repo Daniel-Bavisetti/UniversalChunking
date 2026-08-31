@@ -48,10 +48,15 @@ def semantic_groups(stream: list[ContentElement]) -> list[list[ContentElement]] 
     vecs = embed(texts)
     if vecs is None:
         return None
-    sims = [float(vecs[i] @ vecs[i + 1]) for i in range(len(vecs) - 1)]
-    mean = sum(sims) / len(sims)
-    var = sum((s - mean) ** 2 for s in sims) / len(sims)
-    threshold = mean - var ** 0.5
+    # Vectorised: single numpy operation instead of N Python-level dot products.
+    # SentenceTransformer.encode() returns a numpy array when normalize=True,
+    # so element-wise multiply + row-sum is cheaper than a Python loop.
+    import numpy as np  # noqa: PLC0415
+    vecs = np.asarray(vecs)
+    sims = np.sum(vecs[:-1] * vecs[1:], axis=1)
+    mean = float(sims.mean())
+    std = float(sims.std())
+    threshold = mean - std
     cuts = [i + 1 for i, s in enumerate(sims) if s < threshold]
     if not cuts:
         return [stream]

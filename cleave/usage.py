@@ -23,6 +23,11 @@ log = logging.getLogger(__name__)
 
 LEDGER_PATH = Path(__file__).resolve().parent.parent / "data" / "usage.json"
 
+#: Guards the read-modify-write of the cumulative ledger file. ``Ledger._lock``
+#: cannot do this job: it is per instance, and every call below builds a fresh
+#: ``Ledger``, so two overlapping jobs shared no lock at all.
+_LEDGER_FILE_LOCK = threading.Lock()
+
 
 @dataclass(frozen=True, slots=True)
 class Price:
@@ -164,24 +169,31 @@ class Ledger:
 def append_to_cumulative(job_ledger: Ledger, job_id: str) -> dict:
     """Fold one job's usage into the install-wide ledger and return it.
 
-    Read-modify-write under a process lock. Two jobs cannot run concurrently in
-    this app (BackgroundTasks are sequential per request, and processing is
-    seconds long), so a file lock would be ceremony; the failure mode of a lost
-    update here is a slightly low lifetime total, not a broken run.
-    """
-    cumulative = Ledger()
-    if LEDGER_PATH.exists():
-        try:
-            cumulative.merge(json.loads(LEDGER_PATH.read_text()))
-        except (OSError, ValueError) as exc:
-            log.warning("could not read usage ledger (%s); starting a fresh one", exc)
-    cumulative.merge(job_ledger.to_dict())
+    Read-modify-write under a module lock. ``BackgroundTasks`` are *not*
+    serialised across requests — two uploads seconds apart genuinely overlap —
+    so the unguarded version here silently dropped one job's spend. The lock is
+    process-wide rather than a file lock: two server processes sharing one data
+    directory would still race, which is out of scope for a single-process app.
 
-    out = cumulative.to_dict()
-    out["last_job"] = job_id
-    LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
-    LEDGER_PATH.write_text(json.dumps(out, indent=1))
-    return out
+    The write is atomic (temp file, then replace) so a crash mid-write cannot
+    leave a truncated ``usage.json`` that the next read silently discards.
+    """
+    with _LEDGER_FILE_LOCK:
+        cumulative = Ledger()
+        if LEDGER_PATH.exists():
+            try:
+                cumulative.merge(json.loads(LEDGER_PATH.read_text()))
+            except (OSError, ValueError) as exc:
+                log.warning("could not read usage ledger (%s); starting a fresh one", exc)
+        cumulative.merge(job_ledger.to_dict())
+
+        out = cumulative.to_dict()
+        out["last_job"] = job_id
+        LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = LEDGER_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(out, indent=1))
+        tmp.replace(LEDGER_PATH)
+        return out
 
 
 def read_cumulative() -> dict | None:

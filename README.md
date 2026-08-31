@@ -99,9 +99,17 @@ no number in the UI is hand-written.
 | `cleave/chunkers.py` | Structural / atomic / tabular / semantic / temporal strategies + unit assembly |
 | `cleave/tabular.py` | Column type inference, schema cards, header-repeating row groups |
 | `cleave/evaluate.py` | Fixed-size baseline + Context Preservation Scorecard |
-| `cleave/app.py` | FastAPI + HTMX UI (jobs, results, receipts, retrieval) |
+| `cleave/app.py` | Composition root: builds the FastAPI app, mounts static, registers routers |
+| `cleave/web/` | HTTP layer: job registry, upload safety, page and API routes, search |
+| `cleave/pipeline.py` | Job orchestration (ingest → graph → chunk → enrich → artifacts) |
+| `cleave/config.py` | Every environment variable, loaded from `.env` and validated once |
+| `cleave/http.py` | One pooled HTTP client and one retry policy for every outbound call |
+| `cleave/markdown.py` | Markdown table rendering shared by ingest, cleaning and chunking |
+| `cleave/logging_setup.py` | Log format and per-job correlation, installed at startup |
 | `cleave/ingest_audio.py` | Audio via the local STT worker |
 | `cleave/ingest_contract.py` | Import from an external modality worker |
 | `cleave/enrich.py`, `cleave/llm.py` | Selective LLM enrichment |
 | `cleave/semantic.py` | Embedding topic-drift boundaries for flat prose |
 | `tests/test_cleave.py` | Asserts the promises: captions never severed, headers always repeated |
+| `tests/test_web.py` | Upload/artifact route safety, including path-traversal regressions |
+| `tests/test_http.py`, `tests/test_config.py`, `tests/test_llm.py` | Retry policy, settings validation, provider selection |

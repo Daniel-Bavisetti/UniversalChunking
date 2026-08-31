@@ -26,6 +26,8 @@ import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 
+from .markdown import table_markdown as _table_markdown
+
 #: Reference markers left by tools that annotate sources, e.g. 【32†L355-L364】.
 #: Brackets are optional because a marker that straddled a table-cell boundary
 #: during extraction arrives as a dangling half. What identifies it either way
@@ -154,6 +156,34 @@ def clean_text(text: str, *, verbatim: bool = False) -> tuple[str, Counter]:
     return stripped, counts
 
 
+# Pre-compiled quick-reject: if a cell contains none of these characters,
+# none of the cleaning rules can fire. Avoids 12+ regex passes on short
+# numeric or label cells that dominate large spreadsheets.
+_CELL_NEEDS_CLEANING = re.compile(
+    r"[【】†ﬁﬂﬀﬃﬄﬅﬆ­​‌‍⁠﻿\x00-\x08\x0b\x0c\x0e-\x1f\x7f  ]"
+    r"|[ \t]{2}"
+    r"|\.{4}"
+)
+
+
+def clean_cell(text: str) -> tuple[str, Counter]:
+    """Fast-path cleaner for individual table cells.
+
+    Most cells are short numbers or labels that need no cleaning at all.
+    This avoids the full 12+ regex pass cost of clean_text for the common
+    case, falling through to the full cleaner only when debris is detected.
+    """
+    if not text or len(text) < 3:
+        return text, Counter()
+    if not _CELL_NEEDS_CLEANING.search(text):
+        # No markers, ligatures, invisible chars, or spacing debris detected.
+        stripped = text.strip()
+        if stripped == text:
+            return text, Counter()
+        return stripped, Counter({"surrounding_whitespace": 1})
+    return clean_text(text)
+
+
 def clean_elements(elements) -> CleaningReport:
     """Normalise every element in place, before profiling or chunking.
 
@@ -179,11 +209,12 @@ def clean_elements(elements) -> CleaningReport:
         # RAG)  ." where a citation used to sit.
         grid = el.meta.get("grid")
         if grid:
-            new_grid, cell_counts = [], Counter()
+            new_grid: list[list[str]] = []
+            cell_counts: Counter = Counter()
             for row in grid:
                 new_row = []
                 for cell in row:
-                    c, cc = clean_text(cell)
+                    c, cc = clean_cell(cell)
                     cell_counts.update(cc)
                     new_row.append(c)
                 new_grid.append(new_row)
@@ -191,17 +222,10 @@ def clean_elements(elements) -> CleaningReport:
                 el.meta["grid"] = new_grid
                 if el.meta.get("header_row"):
                     el.meta["header_row"] = [
-                        clean_text(h)[0] for h in el.meta["header_row"]
+                        clean_cell(h)[0] for h in el.meta["header_row"]
                     ]
                 el.text = _table_markdown(new_grid)
                 report.merge(cell_counts)
     return report
 
 
-def _table_markdown(grid: list[list[str]]) -> str:
-    if not grid:
-        return ""
-    lines = ["| " + " | ".join(row) + " |" for row in grid]
-    if len(lines) > 1:
-        lines.insert(1, "|" + "---|" * len(grid[0]))
-    return "\n".join(lines)

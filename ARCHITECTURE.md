@@ -314,7 +314,17 @@ rather than handling exceptions — a rate limit degrades the output instead of 
 job. `CLEAVE_LLM=none` makes that the explicit mode: the pipeline runs identically, just
 without summaries.
 
-### 3.9 Serving — `app.py`
+### 3.9 Serving — `app.py`, `cleave/web/`, `pipeline.py`
+
+`app.py` is the composition root and nothing else: it builds the FastAPI app, mounts
+the static files, registers the routers and keeps the `__main__` block. The layer it
+used to hold is split by responsibility — `web/jobs.py` (the registry and its safe
+path accessors), `web/uploads.py` (filename safety and size caps), `web/routes_pages.py`
+and `web/routes_api.py` (the two surfaces), `web/search.py` (the retrieval demo) — and
+the orchestration moved to `pipeline.py`, which imports nothing from FastAPI so it is
+usable from the evaluator, a future CLI, or a test without standing up an HTTP app.
+`cleave.app:app`, `cleave.app.JOBS` and `cleave.app.run_job` are all still importable
+at their old names.
 
 FastAPI with a module-level `JOBS` dict and `BackgroundTasks`. Jobs take seconds and
 artifacts land on disk, so there is no queue, no database, and no cancellation. Progress
@@ -337,6 +347,12 @@ multi-file job adds a `files` array alongside the combined totals, so existing s
 consumers see nothing new. Search and the context graph view operate over the merged set —
 one job, searched as a whole, even though each file kept the routing decision that fit it.
 
+**One file's failure does not discard the others.** Each input is attempted
+independently; a file that raises is recorded as a warning on the job and the rest
+still produce units. Only a job where *every* input failed is an error. Before this,
+a stopped STT worker took a successfully parsed 200-page PDF down with the audio file
+beside it.
+
 **Per-job LLM override.** `Job.use_llm` (from the upload form's toggle) is threaded into
 `enrich()`; when false it forces `NoneProvider` regardless of what `CLEAVE_LLM`/Ollama/Gemini
 would otherwise select, so a user can force a deterministic, zero-cost run without touching
@@ -344,6 +360,27 @@ server config. The result page reports flagged-but-unenriched chunks as "toggle 
 rather than "no provider found."
 
 Per job on disk: `units.json`, `graph.json`, `profile.json` (profile + totals).
+
+### 3.10 Configuration and outbound HTTP — `config.py`, `http.py`
+
+Every environment variable is read, defaulted and validated in one place, and `.env` is
+actually loaded — it was documented in the user guide and shipped as `.env.example` but
+nothing ever read it, so filling it in did nothing. A real environment variable still
+wins over the file (`override=False`), which is what keeps the documented offline test
+invocation working. Validation is eager and every message names its variable:
+`CLEAVE_ENRICH_BATCH=0` used to surface as `range() arg 3 must not be zero` raised from
+the middle of enrichment. Settings are cached and re-readable rather than frozen into
+module constants at import.
+
+All three outbound callers — Ollama, Gemini, the STT worker — share one pooled client
+and one retry policy. Each previously built a fresh request per call and none retried,
+so a Gemini 429 became an empty completion and the job quietly produced unenriched
+chunks with nothing in the UI to say why. Only transport errors and 408/429/5xx are
+retried; `Retry-After` is honoured but capped, and backoff uses full jitter because
+three concurrent enrichment batches retrying in lockstep would reproduce the burst that
+earned the 429. The retries sit *below* `complete_json`'s never-raises contract, so a
+rate limit still degrades the output rather than failing the job — but it is now
+reported: failed calls are counted and surfaced as a job warning.
 
 ---
 

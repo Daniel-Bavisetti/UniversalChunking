@@ -11,33 +11,60 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from pathlib import Path
 
 import httpx
 
+from .config import settings
+from .http import request_with_retry
 from .ingest_document import IngestResult
 from .models import ContentElement, sha256_of
 
 log = logging.getLogger(__name__)
 
-STT_URL = os.environ.get("CLEAVE_STT_URL", "http://127.0.0.1:8000")
+#: Transcription of a long recording is genuinely slow, so this is generous.
 TIMEOUT_S = 600
+
+
+class STTUnavailable(RuntimeError):
+    """The STT worker did not answer.
+
+    It runs as a separate process (Docling pins ``transformers`` below the
+    version the audio stack needs), so this is an environment problem rather
+    than a problem with the file — and the message says so, because the old
+    behaviour was a raw ``ConnectError`` that read like a corrupt upload.
+    """
 
 
 def ingest_audio(path: str | Path) -> IngestResult:
     path = Path(path)
     warnings: list[str] = []
 
-    with path.open("rb") as f:
-        resp = httpx.post(
-            f"{STT_URL}/api/transcribe/sync",
-            files={"file": (path.name, f)},
+    url = settings().stt_url
+    # Read the bytes once rather than streaming the handle: a retry has to
+    # send the body again, and a rewound file object is easy to get wrong.
+    # Uploads are capped at 50MB, so holding one is acceptable.
+    payload = path.read_bytes()
+    try:
+        resp = request_with_retry(
+            "POST",
+            f"{url}/api/transcribe/sync",
+            files={"file": (path.name, payload)},
             data={"options": json.dumps({"diarize": True}), "format": "json"},
             timeout=TIMEOUT_S,
+            attempts=2,
         )
-    resp.raise_for_status()
-    data = resp.json()
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise STTUnavailable(
+            f"STT worker at {url} did not respond ({exc}); start it, or drop the audio file from this job"
+        ) from exc
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise STTUnavailable(
+            f"STT worker at {url} returned a non-JSON reply ({exc})"
+        ) from exc
     if data.get("error"):
         raise RuntimeError(f"STT worker error: {data['error']}")
 

@@ -13,6 +13,7 @@ import json
 import re
 
 import pytest
+from conftest import FIXTURES
 
 from cleave.chunkers import chunk
 from cleave.graph import ContextGraph
@@ -25,10 +26,8 @@ from cleave.models import (
     Provenance,
     RelationType,
 )
-from cleave.router import anaphora_rate, build_profile, escalation_flags
+from cleave.router import anaphora_rate, escalation_flags
 from cleave.tabular import profile_column, profile_table, render_group, row_groups
-
-FIXTURES = "tests/fixtures"
 
 
 def run(path: str) -> tuple[list[KnowledgeUnit], object]:
@@ -54,24 +53,27 @@ def workbook():
 
 # ───────── routing ─────────
 
+@pytest.mark.slow
 def test_structured_document_routes_structural(paper):
     _units, profile = paper
     assert profile.route == "structural"
     assert profile.heading_count >= 3
 
 
+@pytest.mark.slow
 def test_spreadsheets_route_tabular(sales, workbook):
     assert sales[1].route == "tabular"
     assert workbook[1].route == "tabular"
     assert sales[1].row_count == 480
 
 
-def test_flat_prose_does_not_route_structural():
+def test_flat_prose_does_not_route_structural(tmp_path):
     _units, profile = run(f"{FIXTURES}/flat_essay.md")
     assert profile.route in ("semantic", "paragraph_fallback")
     assert profile.heading_count == 0
 
 
+@pytest.mark.slow
 def test_route_reason_cites_the_signals_that_drove_it(paper, sales):
     """The reason has to be evidence, not a restatement of the strategy name."""
     _u, paper_p = paper
@@ -82,6 +84,7 @@ def test_route_reason_cites_the_signals_that_drove_it(paper, sales):
 
 # ───────── the core promise: cuts never sever relationships ─────────
 
+@pytest.mark.slow
 def test_every_captioned_float_keeps_its_caption(paper):
     """The headline claim. A caption and its figure must land in one unit."""
     units, _ = paper
@@ -97,6 +100,7 @@ def test_every_captioned_float_keeps_its_caption(paper):
             f"caption for {float_el.id} was severed from its float"
 
 
+@pytest.mark.slow
 def test_oversized_tables_repeat_their_header(paper):
     units, _ = paper
     parts = [u for u in units if u.metadata.get("part")]
@@ -104,6 +108,7 @@ def test_oversized_tables_repeat_their_header(paper):
         assert u.decision.vetoed_cuts, "a split table must record why it split that way"
 
 
+@pytest.mark.slow
 def test_row_groups_always_carry_the_header(sales):
     units, _ = sales
     groups = [u for u in units if u.metadata.get("element_kind") == "row_group"]
@@ -114,6 +119,7 @@ def test_row_groups_always_carry_the_header(sales):
             assert column in first_line, f"{u.id} lost column {column!r}"
 
 
+@pytest.mark.slow
 def test_row_groups_never_split_a_row(sales):
     units, _ = sales
     for u in (x for x in units if x.metadata.get("element_kind") == "row_group"):
@@ -124,6 +130,7 @@ def test_row_groups_never_split_a_row(sales):
 
 # ───────── explainability ─────────
 
+@pytest.mark.slow
 def test_every_unit_can_explain_itself(paper, sales, workbook):
     for units, _ in (paper, sales, workbook):
         for u in units:
@@ -131,6 +138,7 @@ def test_every_unit_can_explain_itself(paper, sales, workbook):
             assert len(u.decision.reason) > 20, f"{u.id} has no usable reason"
 
 
+@pytest.mark.slow
 def test_embed_text_leads_with_context(paper):
     units, _ = paper
     situated = [u for u in units if u.context.heading_path]
@@ -140,6 +148,7 @@ def test_embed_text_leads_with_context(paper):
     assert u.content in u.embed_text()
 
 
+@pytest.mark.slow
 def test_relationships_carry_evidence(paper):
     units, _ = paper
     refs = [r for u in units for r in u.relationships
@@ -149,6 +158,7 @@ def test_relationships_carry_evidence(paper):
         assert r.evidence and 0 < r.confidence <= 1.0
 
 
+@pytest.mark.slow
 def test_schema_card_links_to_every_row_group(sales):
     units, _ = sales
     card = next(u for u in units if u.metadata.get("element_kind") == "schema_card")
@@ -160,6 +170,7 @@ def test_schema_card_links_to_every_row_group(sales):
 
 # ───────── selectivity: AI is spent, not sprayed ─────────
 
+@pytest.mark.slow
 def test_most_units_need_no_llm(sales):
     """A dataset is self-describing; only the schema card earns a call."""
     units, _ = sales
@@ -180,17 +191,15 @@ def test_orphan_text_is_flagged_but_situated_text_is_not():
 
 # ───────── temporal + contract import ─────────
 
-def _timed(payload) -> list[KnowledgeUnit]:
+def _timed(tmp_path, payload) -> list[KnowledgeUnit]:
     import json
-    import tempfile
 
     from cleave.chunkers import chunk as _chunk
     from cleave.graph import ContextGraph as _Graph
     from cleave.ingest_contract import load_contract
 
-    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-        json.dump(payload, f)
-        path = f.name
+    path = tmp_path / "payload.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
     ing, ready = load_contract(path)
     if ready:
         return ready
@@ -198,10 +207,10 @@ def _timed(payload) -> list[KnowledgeUnit]:
     return units
 
 
-def test_short_turn_never_steals_another_speakers_words():
+def test_short_turn_never_steals_another_speakers_words(tmp_path):
     """A brief reply is still that person's reply. Merging it into the previous
     speaker's turn would attribute their words to someone else."""
-    units = _timed({"contract": 1, "source_uri": "t.mp4", "elements": [
+    units = _timed(tmp_path, {"contract": 1, "source_uri": "t.mp4", "elements": [
         {"id": "a", "kind": "speech_segment", "text": "Long opening statement here.",
          "t0": 0.0, "t1": 9.0, "speaker": "A"},
         {"id": "b", "kind": "speech_segment", "text": "Agreed.",
@@ -212,8 +221,8 @@ def test_short_turn_never_steals_another_speakers_words():
     assert "Agreed" not in units[0].content
 
 
-def test_unattributed_fragment_does_merge():
-    units = _timed({"contract": 1, "source_uri": "t.mp4", "elements": [
+def test_unattributed_fragment_does_merge(tmp_path):
+    units = _timed(tmp_path, {"contract": 1, "source_uri": "t.mp4", "elements": [
         {"id": "a", "kind": "speech_segment", "text": "Opening statement.",
          "t0": 0.0, "t1": 9.0, "speaker": "A"},
         {"id": "b", "kind": "speech_segment", "text": "Mm.", "t0": 9.1, "t1": 9.6},
@@ -221,8 +230,8 @@ def test_unattributed_fragment_does_merge():
     assert len(units) == 1
 
 
-def test_contract_import_keeps_every_visual_summary():
-    units = _timed({"contract": 1, "source_uri": "t.mp4", "elements": [
+def test_contract_import_keeps_every_visual_summary(tmp_path):
+    units = _timed(tmp_path, {"contract": 1, "source_uri": "t.mp4", "elements": [
         {"id": "a", "kind": "speech_segment", "text": "First.", "t0": 0.0, "t1": 4.0,
          "speaker": "A", "meta": {"visual_summary": "title slide"}},
         {"id": "b", "kind": "speech_segment", "text": "Second.", "t0": 4.0, "t1": 9.0,
@@ -231,15 +240,11 @@ def test_contract_import_keeps_every_visual_summary():
     assert units[0].metadata["visual_summary"] == "title slide · bar chart"
 
 
-def test_contract_rejects_an_unknown_version():
-    import json
-    import tempfile
-
+def test_contract_rejects_an_unknown_version(tmp_path):
     from cleave.ingest_contract import load_contract
 
-    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-        json.dump({"contract": 99, "elements": []}, f)
-        path = f.name
+    path = tmp_path / "bad.json"
+    path.write_text(json.dumps({"contract": 99, "elements": []}), encoding="utf-8")
     with pytest.raises(ValueError, match="unsupported contract version"):
         load_contract(path)
 
@@ -329,6 +334,7 @@ def test_code_elements_keep_their_spacing():
     assert "    return    1" in out
 
 
+@pytest.mark.slow
 def test_cleaning_runs_before_chunking(paper):
     """Units must hold cleaned text: token counts, boundaries and embeddings
     all describe what is stored, so cleaning cannot be a display-time step."""
@@ -341,6 +347,7 @@ def test_cleaning_runs_before_chunking(paper):
             assert not re.search(r"[ \t]+[,.;:]", line), f"{u.id}: {line[:60]!r}"
 
 
+@pytest.mark.slow
 def test_cleaning_report_is_recorded():
     ing = ingest_document(f"{FIXTURES}/executive_summary.pdf")
     assert ing.cleaning["total_fixes"] > 100
@@ -401,13 +408,12 @@ def test_ledger_separates_models():
     assert d["totals"]["paid_calls"] == 1 and d["totals"]["local_calls"] == 1
 
 
-def test_batching_sends_the_document_once_per_batch():
-    """The optimisation that matters: N flagged chunks must not mean N
-    document re-sends."""
-    from cleave import enrich as enrich_mod
-    from cleave.usage import Ledger
+def make_fake_provider(seen_prompts: list[str] | None = None):
+    """A provider that echoes back one summary per chunk id it was given.
 
-    seen_prompts: list[str] = []
+    Shared because more than one test needs a model that behaves, and the
+    id echo is what enrichment matches results back on.
+    """
 
     class FakeProvider:
         name, model = "fake", "fake-model"
@@ -416,11 +422,24 @@ def test_batching_sends_the_document_once_per_batch():
             return True
 
         def complete_json(self, prompt, *, system=None, schema=None):
-            seen_prompts.append(prompt)
+            if seen_prompts is not None:
+                seen_prompts.append(prompt)
             ids = re.findall(r'<chunk id="([^"]+)"', prompt)
             body = json.dumps({"results": [
                 {"id": i, "summary": f"context for {i}", "entities": ["x"]} for i in ids]})
             return body, {"model": self.model, "in_tokens": 1000, "out_tokens": 50}
+
+    return FakeProvider
+
+
+def test_batching_sends_the_document_once_per_batch(monkeypatch):
+    """The optimisation that matters: N flagged chunks must not mean N
+    document re-sends."""
+    from cleave import enrich as enrich_mod
+    from cleave.usage import Ledger
+
+    seen_prompts: list[str] = []
+    FakeProvider = make_fake_provider(seen_prompts)
 
     units = [
         KnowledgeUnit(
@@ -432,12 +451,8 @@ def test_batching_sends_the_document_once_per_batch():
         for i in range(12)
     ]
     led = Ledger()
-    original = enrich_mod.get_provider
-    enrich_mod.get_provider = lambda: FakeProvider()
-    try:
-        totals = enrich_mod.enrich(units, "THE DOCUMENT", ledger=led)
-    finally:
-        enrich_mod.get_provider = original
+    monkeypatch.setattr(enrich_mod, "get_provider", FakeProvider)
+    totals = enrich_mod.enrich(units, "THE DOCUMENT", ledger=led)
 
     assert totals["enriched"] == 12
     # 12 chunks at batch size 6 → 2 calls, not 12
@@ -448,17 +463,33 @@ def test_batching_sends_the_document_once_per_batch():
     assert all(u.context.tier == 2 for u in units)
 
 
-def test_enrichment_cost_is_shared_across_the_batch():
+def test_enrichment_cost_is_shared_across_the_batch(monkeypatch):
+    """One batched call bills every unit it served, and only what it cost."""
+    from cleave import enrich as enrich_mod
     from cleave.usage import Ledger
 
+    units = [
+        KnowledgeUnit(
+            id=f"ku_{i:04d}", content=f"chunk {i}", modality=Modality.DOCUMENT,
+            context=Context(), provenance=Provenance(source_uri="t"),
+            decision=ChunkingDecision(strategy="structural", reason="r",
+                                      escalation_flags=["orphan"]),
+        )
+        for i in range(6)
+    ]
     led = Ledger()
-    cost = led.record("gemini-2.5-flash", 6000, 300)
-    assert cost > 0
-    # a 6-chunk batch attributes a sixth of the call to each unit
-    assert round(cost / 6, 8) == round(cost / 6, 8)
+    monkeypatch.setattr(enrich_mod, "get_provider", make_fake_provider())
+    enrich_mod.enrich(units, "THE DOCUMENT", ledger=led)
+
+    assert led.total_calls == 1          # six chunks, one call
+    assert led.total_cost > 0
+    share = led.total_cost / 6
+    for u in units:
+        assert u.decision.cost_usd == pytest.approx(share)
+    assert sum(u.decision.cost_usd for u in units) == pytest.approx(led.total_cost)
 
 
-def test_no_provider_means_no_calls_and_no_cost():
+def test_no_provider_means_no_calls_and_no_cost(monkeypatch):
     from cleave import enrich as enrich_mod
     from cleave.llm import NoneProvider
     from cleave.usage import Ledger
@@ -469,12 +500,8 @@ def test_no_provider_means_no_calls_and_no_cost():
         decision=ChunkingDecision(strategy="structural", reason="r",
                                   escalation_flags=["orphan"]))]
     led = Ledger()
-    original = enrich_mod.get_provider
-    enrich_mod.get_provider = lambda: NoneProvider()
-    try:
-        totals = enrich_mod.enrich(units, "doc", ledger=led)
-    finally:
-        enrich_mod.get_provider = original
+    monkeypatch.setattr(enrich_mod, "get_provider", NoneProvider)
+    totals = enrich_mod.enrich(units, "doc", ledger=led)
     assert totals["enriched"] == 0 and led.total_calls == 0
     assert units[0].context.situating_summary is None   # still a valid unit
 
@@ -526,6 +553,7 @@ def test_table_profile_counts_body_rows_only():
 
 # ───────── graph ─────────
 
+@pytest.mark.slow
 def test_numbered_sections_nest_under_their_numeric_parent(paper):
     """Docling reports every heading as level 1, so nesting comes from the
     section numbering the document already carries."""
@@ -540,6 +568,7 @@ def test_numbered_sections_nest_under_their_numeric_parent(paper):
             assert c_num.startswith(p_num + "."), f"{c_num} is not under {p_num}"
 
 
+@pytest.mark.slow
 def test_surrounding_text_stops_at_a_heading():
     ing = ingest_document(f"{FIXTURES}/attention_paper.pdf")
     graph = ContextGraph(ing.elements)
@@ -548,14 +577,74 @@ def test_surrounding_text_stops_at_a_heading():
     assert leading is None or isinstance(leading, str)
 
 
+@pytest.mark.slow
 def test_profile_is_json_serializable(sales):
     _units, profile = sales
     d = profile.to_dict()
     assert d["route"] == "tabular" and isinstance(d["heading_density"], float)
 
 
+@pytest.mark.slow
 def test_units_serialize_with_embed_text(sales):
     units, _ = sales
     d = units[0].to_dict()
     assert d["embed_text"] and d["modality"] == "document"
     assert isinstance(d["decision"]["cost_usd"], float)
+
+
+def test_a_local_model_records_tier_one_not_tier_two(monkeypatch):
+    """Context.tier documents '1 local model · 2 LLM'. Enrichment used to write
+    2 unconditionally, so tier 1 never existed and the scale read as binary."""
+    from cleave import enrich as enrich_mod
+    from cleave.usage import Ledger
+
+    class LocalProvider:
+        name, model = "ollama", "ollama/qwen3:4b"
+
+        def is_configured(self):
+            return True
+
+        def complete_json(self, prompt, *, system=None, schema=None):
+            ids = re.findall(r'<chunk id="([^"]+)"', prompt)
+            body = json.dumps({"results": [
+                {"id": i, "summary": f"local context for {i}"} for i in ids]})
+            return body, {"model": self.model, "in_tokens": 100, "out_tokens": 10}
+
+    units = [KnowledgeUnit(
+        id="ku_0000", content="x", modality=Modality.DOCUMENT, context=Context(),
+        provenance=Provenance(source_uri="t"),
+        decision=ChunkingDecision(strategy="structural", reason="r",
+                                  escalation_flags=["orphan"]))]
+    monkeypatch.setattr(enrich_mod, "get_provider", LocalProvider)
+    enrich_mod.enrich(units, "THE DOCUMENT", ledger=Ledger())
+
+    assert units[0].context.situating_summary
+    assert units[0].context.tier == 1        # local, and free
+
+
+def test_enrichment_failures_are_reported_not_swallowed(monkeypatch):
+    """A rate limit used to leave chunks quietly unenriched with nothing said."""
+    from cleave import enrich as enrich_mod
+    from cleave.usage import Ledger
+
+    class FailingProvider:
+        name, model = "gemini", "gemini-2.5-flash"
+
+        def is_configured(self):
+            return True
+
+        def complete_json(self, prompt, *, system=None, schema=None):
+            return "", {"model": self.model}      # what a 429 degrades to
+
+    units = [KnowledgeUnit(
+        id="ku_0000", content="x", modality=Modality.DOCUMENT, context=Context(),
+        provenance=Provenance(source_uri="t"),
+        decision=ChunkingDecision(strategy="structural", reason="r",
+                                  escalation_flags=["orphan"]))]
+    monkeypatch.setattr(enrich_mod, "get_provider", FailingProvider)
+    totals = enrich_mod.enrich(units, "doc", ledger=Ledger())
+
+    assert totals["failed_calls"] == 1
+    assert "failed" in totals["warning"]
+    assert units[0].context.situating_summary is None   # still a valid unit
+    assert units[0].context.tier == 0

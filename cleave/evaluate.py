@@ -15,15 +15,18 @@ Metrics (each preserved/total over the corpus):
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .chunkers import chunk
-from .graph import ContextGraph, _REF_RE
+from .graph import ContextGraph
 from .ingest_document import IngestResult, ingest_document
 from .models import _encoder
+
+log = logging.getLogger(__name__)
 
 FIXED_TOKENS = 512
 FIXED_OVERLAP = 64
@@ -161,14 +164,145 @@ def score_document(path: str, fixed: ArmScore, cleave: ArmScore) -> None:
             c_hits = c_find(probe)
             cleave.refs.add(bool(c_hits) and any(
                 t_probe in norm(u.content)
-                or any(r.type.value == "references" for r in u.relationships)
+                or any((r.type.value if hasattr(r.type, 'value') else str(r.type)) == "references" for r in u.relationships)
                 for u in c_hits))
 
 
+# ───────── Universal Boundary & Retrieval Evaluation Metrics ─────────
+
+def boundary_coherence_score(units: list, graph: ContextGraph) -> float:
+    """Measure the proportion of unit boundaries that align with valid structural,
+    semantic, or temporal transition points."""
+    if len(units) <= 1:
+        return 1.0
+    coherent_boundaries = 0
+    for u in units:
+        dec = u.decision
+        if dec.strategy in ("structural", "atomic", "tabular", "temporal"):
+            coherent_boundaries += 1
+        elif dec.signals.get("semantic_shift", 0.0) > 0.3 or dec.signals.get("speaker_change", 0.0) > 0.5:
+            coherent_boundaries += 1
+        elif u.metadata.get("element_kind") in ("table", "figure", "schema_card", "section"):
+            coherent_boundaries += 1
+        elif len(dec.vetoed_cuts) > 0:
+            coherent_boundaries += 1
+    return round(coherent_boundaries / len(units), 3)
+
+
+def context_completeness_score(units: list, graph: ContextGraph) -> float:
+    """Measure the average context completeness across all KnowledgeUnits."""
+    if not units:
+        return 0.0
+    scores = [getattr(u, "context_completeness", 1.0) for u in units]
+    return round(sum(scores) / len(scores), 3)
+
+
+def relationship_preservation_rate(units: list, graph: ContextGraph) -> float:
+    """Calculate the fraction of critical graph edges preserved within units or explicitly linked."""
+    critical_types = {"captions", "captioned_by", "parent", "has_schema", "schema_of", "answered_by", "explains"}
+    critical_edges = [(s, t, d) for s, t, d in graph.g.edges(data=True) if d.get("type") in critical_types]
+    if not critical_edges:
+        return 1.0
+
+    unit_by_element: dict[str, str] = {}
+    for u in units:
+        # Check text or metadata matching
+        for node in graph.elements:
+            if node.text and node.text[:50] in u.content:
+                unit_by_element.setdefault(node.id, u.id)
+
+    preserved = 0
+    for s, t, d in critical_edges:
+        u_s = unit_by_element.get(s)
+        u_t = unit_by_element.get(t)
+        if u_s and u_t and u_s == u_t:
+            preserved += 1
+        elif u_s and u_t:
+            # Check if linked via relationship
+            by_id = {u.id: u for u in units}
+            unit_s = by_id.get(u_s)
+            if unit_s and any(r.target_id == u_t for r in unit_s.relationships):
+                preserved += 1
+        else:
+            preserved += 1  # Not severed across split
+
+    return round(preserved / len(critical_edges), 3)
+
+
+def fragmentation_rate(units: list, min_viable_tokens: int = 40) -> float:
+    """Calculate the proportion of under-sized chunks that represent unnecessary fragmentation."""
+    if not units:
+        return 0.0
+    under_sized = sum(1 for u in units if u.token_count < min_viable_tokens and u.metadata.get("element_kind") not in ("figure", "caption"))
+    return round(under_sized / len(units), 3)
+
+
+def chunk_size_variance(units: list) -> float:
+    """Calculate chunk size variance (standard deviation) to evaluate adaptive sizing behavior."""
+    if len(units) <= 1:
+        return 0.0
+    sizes = [u.token_count for u in units]
+    mean = sum(sizes) / len(sizes)
+    variance = sum((s - mean) ** 2 for s in sizes) / len(sizes)
+    return round(variance ** 0.5, 2)
+
+
+def retrieval_evaluation(
+    units: list,
+    queries: list[str],
+    relevance_labels: list[set[str]],
+    k: int = 5,
+) -> dict[str, float]:
+    """Compute Recall@K, Precision@K, and MRR for retrieval evaluation."""
+    if not queries or not relevance_labels or len(queries) != len(relevance_labels):
+        return {"recall_at_k": 0.0, "precision_at_k": 0.0, "mrr": 0.0}
+
+    recalls: list[float] = []
+    precisions: list[float] = []
+    reciprocal_ranks: list[float] = []
+
+    for query, relevant_ids in zip(queries, relevance_labels):
+        q_norm = norm(query)
+        # Score units by simple token overlap / keyword relevance for evaluation
+        q_tokens = set(q_norm.split())
+        scored_units: list[tuple[float, str]] = []
+        for u in units:
+            u_tokens = set(norm(u.embed_text()).split())
+            overlap = len(q_tokens & u_tokens)
+            scored_units.append((overlap, u.id))
+
+        scored_units.sort(key=lambda x: x[0], reverse=True)
+        top_k_ids = [uid for _, uid in scored_units[:k]]
+
+        hits = len(set(top_k_ids) & relevant_ids)
+        recalls.append(hits / max(1, len(relevant_ids)))
+        precisions.append(hits / max(1, k))
+
+        # MRR calculation
+        rr = 0.0
+        for rank, (score, uid) in enumerate(scored_units, start=1):
+            if uid in relevant_ids and score > 0:
+                rr = 1.0 / rank
+                break
+        reciprocal_ranks.append(rr)
+
+    return {
+        "recall_at_k": round(sum(recalls) / len(recalls), 3),
+        "precision_at_k": round(sum(precisions) / len(precisions), 3),
+        "mrr": round(sum(reciprocal_ranks) / len(reciprocal_ranks), 3),
+    }
+
+
 def main(paths: list[str]) -> dict:
+    """Score every document and write the scorecard, returning the record.
+
+    Importable and quiet: progress is a log line, and the report itself is
+    printed by the ``__main__`` block, so piping the JSON to ``jq`` still works
+    while a test can call this without capturing stdout.
+    """
     fixed, cleave = ArmScore(), ArmScore()
     for p in paths:
-        print(f"scoring {p} …")
+        log.info("scoring %s", p)
         score_document(p, fixed, cleave)
     result = {
         "documents": [Path(p).name for p in paths],
@@ -179,14 +313,17 @@ def main(paths: list[str]) -> dict:
     out = Path(__file__).resolve().parent.parent / "data" / "scorecard.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(result, indent=1))
-    print(json.dumps(result, indent=1))
-    print(f"\nwritten to {out}")
+    log.info("scorecard written to %s", out)
     return result
 
 
 if __name__ == "__main__":
+    from .logging_setup import configure_logging
+
+    configure_logging()
     args = sys.argv[1:] or [
         "tests/fixtures/executive_summary.pdf",
         "tests/fixtures/attention_paper.pdf",
     ]
-    main(args)
+    record = main(args)
+    print(json.dumps(record, indent=1))

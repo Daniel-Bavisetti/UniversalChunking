@@ -6,3 +6,12 @@ data/jobs/
 nohup.out
 .idea/
 .env
+*.log
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/

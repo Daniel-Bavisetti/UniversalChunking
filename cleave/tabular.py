@@ -19,6 +19,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from .markdown import body_rows, row_md
 from .models import count_tokens
 
 log = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ def _fmt(v: float | None, force_decimals: bool = False) -> str:
     if v is None:
         return "?"
     if not force_decimals and abs(v - round(v)) < 1e-9 and abs(v) < 1e15:
-        return f"{int(round(v)):,}"
+        return f"{round(v):,}"
     return f"{v:,.2f}"
 
 
@@ -102,13 +103,22 @@ def profile_column(name: str, values: list[str]) -> ColumnProfile:
         return p
 
     n = len(present)
-    # Numbers are classified as one family first: a column of 4.9, 5, 6.1 is
-    # decimal, not "mostly-decimal-therefore-text". Only once a column is known
-    # to be numeric do we ask whether any value has a fractional part.
-    ints = sum(1 for v in present if _INT_RE.match(v))
-    decs = sum(1 for v in present if _DEC_RE.match(v))
-    pcts = sum(1 for v in present if _PCT_RE.match(v))
-    dates = sum(1 for v in present if _DATE_RE.match(v))
+    # Single pass: classify each value once instead of running 4 separate loops.
+    # Order matters: percentage before decimal (both match \d+\.\d+), date before
+    # integer (a date like 2024-01-15 could partially match integer patterns).
+    ints = 0
+    decs = 0
+    pcts = 0
+    dates = 0
+    for v in present:
+        if _PCT_RE.match(v):
+            pcts += 1
+        elif _DATE_RE.match(v):
+            dates += 1
+        elif _INT_RE.match(v):
+            ints += 1
+        elif _DEC_RE.match(v):
+            decs += 1
 
     if pcts >= 0.9 * n:
         p.dtype = "percentage"
@@ -182,7 +192,7 @@ class TableProfile:
 
 def profile_table(grid: list[list[str]], header: list[str],
                   sheet: str | None) -> TableProfile:
-    body = grid[1:] if grid and header and grid[0] == header else grid
+    body = body_rows(grid, header)
     ncols = len(header) if header else (len(grid[0]) if grid else 0)
     cols = []
     for i in range(ncols):
@@ -197,14 +207,14 @@ def row_groups(grid: list[list[str]], header: list[str],
     """Split body rows into groups that fit the budget. Returns (start_row_index,
     rows) with 1-based row numbers as they appear in the source, so provenance
     can point back at the spreadsheet."""
-    body = grid[1:] if grid and header and grid[0] == header else grid
-    header_cost = count_tokens(_row_md(header)) if header else 0
+    body = body_rows(grid, header)
+    header_cost = count_tokens(row_md(header)) if header else 0
     groups: list[tuple[int, list[list[str]]]] = []
     cur: list[list[str]] = []
     start = 0
     acc = header_cost
     for i, row in enumerate(body):
-        cost = count_tokens(_row_md(row))
+        cost = count_tokens(row_md(row))
         if cur and acc + cost > target_tokens:
             groups.append((start, cur))
             cur, start, acc = [], i, header_cost
@@ -215,8 +225,7 @@ def row_groups(grid: list[list[str]], header: list[str],
     return groups
 
 
-def _row_md(row: list[str]) -> str:
-    return "| " + " | ".join(row) + " |"
+
 
 
 def render_group(header: list[str], rows: list[list[str]]) -> str:
@@ -224,7 +233,7 @@ def render_group(header: list[str], rows: list[list[str]]) -> str:
     valid, self-describing table on its own."""
     out = []
     if header:
-        out.append(_row_md(header))
+        out.append(row_md(header))
         out.append("|" + "---|" * len(header))
-    out += [_row_md(r) for r in rows]
+    out += [row_md(r) for r in rows]
     return "\n".join(out)

@@ -18,14 +18,15 @@ from typing import Any
 
 from .ingest_document import IngestResult
 from .models import (
+    ELEMENT_KINDS,
     ChunkingDecision,
     ContentElement,
     Context,
     KnowledgeUnit,
     Modality,
     Provenance,
-    RelationType,
     Relationship,
+    RelationType,
     Temporal,
     count_tokens,
     sha256_of,
@@ -43,7 +44,11 @@ def load_contract(path: str | Path) -> tuple[IngestResult | None, list[Knowledge
     pipeline over them — or ``(None, units)`` for finished units.
     """
     path = Path(path)
-    payload = json.loads(path.read_text())
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, ValueError) as exc:
+        # A clean job error beats a raw JSONDecodeError from an uploaded file.
+        raise ValueError(f"{path.name} is not valid JSON: {exc}") from exc
     version = payload.get("contract")
     if version != SUPPORTED_CONTRACT:
         raise ValueError(
@@ -78,11 +83,25 @@ def load_contract(path: str | Path) -> tuple[IngestResult | None, list[Knowledge
     ), []
 
 
+def _valid_kind(kind: Any) -> str:
+    """Coerce an unrecognised element kind to ``other``.
+
+    An external worker sending ``paragrahp`` used to produce an element that no
+    router branch matched and no strategy ever emitted — silently absent from
+    the output rather than visibly wrong.
+    """
+    if kind in ELEMENT_KINDS:
+        return str(kind)
+    if kind:
+        log.warning("unknown element kind %r — treating it as 'other'", kind)
+    return "other"
+
+
 def _element_from(d: dict[str, Any], prefix: str, i: int) -> ContentElement:
     bbox = d.get("bbox")
     return ContentElement(
         id=f"{prefix}_{d.get('id', i)}",
-        kind=d.get("kind", "other"),
+        kind=_valid_kind(d.get("kind")),
         text=(d.get("text") or "").strip(),
         level=d.get("level"),
         parent_id=(f"{prefix}_{d['parent_id']}" if d.get("parent_id") else None),
@@ -142,4 +161,11 @@ def _unit_from(d: dict[str, Any], source_uri: str, prefix: str, i: int) -> Knowl
         entities=list(d.get("entities") or []),
         metadata=d.get("metadata") or {},
         token_count=int(d.get("token_count") or count_tokens(content)),
+        knowledge_unit_type=str(d.get("knowledge_unit_type") or "generic"),
+        parent_id=f"{prefix}_{d['parent_id']}" if d.get("parent_id") else None,
+        child_ids=[f"{prefix}_{cid}" for cid in d.get("child_ids", [])],
+        level=d.get("level"),
+        context_completeness=float(d.get("context_completeness", 1.0)),
+        missing_context=list(d.get("missing_context") or []),
+        boundary_trace=d.get("boundary_trace") or {},
     )

@@ -12,6 +12,7 @@ dependencies = [
     "httpx>=0.27",
     "jinja2>=3.1",
     "networkx>=3",
+    "python-dotenv>=1.0",
     "python-multipart>=0.0.9",
     "sentence-transformers>=3",
     "tiktoken>=0.7",
@@ -21,16 +22,83 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "pytest-cov>=5",
+    "ruff>=0.6",
+    "mypy>=1.11",
 ]
 
 [tool.pytest.ini_options]
 # Tests import `cleave` from the working tree rather than an installed copy.
 pythonpath = ["."]
 testpaths = ["tests"]
+addopts = "--strict-markers --strict-config"
 filterwarnings = [
     "ignore::UserWarning:torch.nn.modules.conv",
 ]
+markers = [
+    "slow: parses a real document through Docling (model load dominates)",
+]
+
+[tool.coverage.run]
+source = ["cleave"]
+omit = ["cleave/evaluate.py"]
+
+[tool.coverage.report]
+exclude_lines = ['pragma: no cover', 'if __name__ == .__main__.:', '\.\.\.']
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "RET", "PTH", "PL", "S", "T20", "RUF"]
+ignore = [
+    "PLR0913",  # many keyword args is the honest shape for the pipeline seams
+    "PLR2004",  # magic values are the tuned constants this codebase documents in prose
+    "PLR0912",  # branch counts in ingest_document's Docling walk are inherent
+    "PLR0915",
+    "E501",     # line length is the formatter's job, not the linter's
+    "RUF001",   # em dashes and › in prose are this codebase's house style
+    "RUF002",
+    "RUF003",
+    # `class Modality(str, Enum)` is the published contract in models.py; StrEnum
+    # would change how external workers deserialize it.
+    "UP042",
+    # zip(...) here pairs a sequence with its own tail; strict= would be wrong
+    # and pairwise() reads worse than the explicit slice at these call sites.
+    "B905",
+    "RUF007",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "PLC0415", "T20"]
+"cleave/evaluate.py" = ["T20"]   # a CLI script legitimately prints its report
+# FastAPI declares body/query params as call defaults: File(...), Form(...).
+"cleave/web/routes_api.py" = ["B008"]
+# The regex must contain the literal invisible characters it matches.
+"cleave/cleaning.py" = ["PLE2515"]
+# Lazy module-level singletons, each guarded or idempotent by design.
+"cleave/ingest_document.py" = ["PLW0603"]
+"cleave/logging_setup.py" = ["PLW0603"]
+# _text_unit's arguments are the seam between strategy and unit assembly;
+# collapsing them into a params object would hide what each strategy supplies.
+"cleave/chunkers.py" = ["PLR0917"]
+# Module-level caches guarded by a lock: `global` is the mechanism, not a smell.
+"cleave/llm.py" = ["PLW0603"]
+"cleave/config.py" = ["PLW0603"]
+
+[tool.ruff.lint.pylint]
+max-args = 8
+
+[tool.mypy]
+python_version = "3.12"
+files = ["cleave"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = ["docling.*", "docling_core.*", "networkx.*", "sentence_transformers.*", "tiktoken.*"]
+ignore_missing_imports = true

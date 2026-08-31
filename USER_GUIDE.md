@@ -59,8 +59,8 @@ automatically, **preferring a local model** because it costs nothing and keeps y
 documents on your machine:
 
 1. **Local (Ollama)** — used if one is running with a model pulled.
-2. **Gemini API** — used if a `GEMINI_API_KEY` is in your environment, or in the `.env` of
-   the `universalOCR` or `uniflo` projects.
+2. **Gemini API** — used if a `GEMINI_API_KEY` is set in your environment or in this
+   project's own `.env` file.
 3. **Neither** — everything still runs. You see which chunks *would* have benefited,
    flagged but not filled in.
 
@@ -80,6 +80,11 @@ pulled. Gemini's model defaults to `gemini-2.5-flash`, overridable via `GEMINI_M
 home page's **Spend** section shows which provider is active. To force a choice
 server-wide: `CLEAVE_LLM=none`, `CLEAVE_LLM=ollama`, or `CLEAVE_LLM=gemini`. See
 `.env.example` for the full list of tunable variables.
+
+Copy `.env.example` to `.env` and the values are picked up at startup. A real environment
+variable always beats the file, so `CLEAVE_LLM=none uv run pytest` still runs offline even
+if your `.env` names a provider. Settings are validated once on first use: a malformed
+value names the variable that caused it instead of failing later inside the pipeline.
 
 ### Watching what it costs
 

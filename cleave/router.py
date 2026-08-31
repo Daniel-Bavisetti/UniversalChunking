@@ -22,12 +22,15 @@ MAX_TOKENS = 700
 _TEXT_KINDS = ("paragraph", "list_item", "code", "caption")
 
 # Sentences that lean on context that may live outside the chunk.
-_ANAPHORA_RES = [
-    re.compile(r"\bas (shown|described|noted|mentioned|discussed) (above|earlier|previously|below)\b", re.I),
-    re.compile(r"\bthis (table|figure|section|chart|diagram|approach|result)\b", re.I),
-    re.compile(r"\bthe (former|latter)\b", re.I),
-    re.compile(r"^(This|These|It|They)\b"),
-]
+# Combined into a single alternation for a single regex match per sentence
+# instead of 4 separate calls.
+_ANAPHORA_RE = re.compile(
+    r"\bas (shown|described|noted|mentioned|discussed) (above|earlier|previously|below)\b"
+    r"|\bthis (table|figure|section|chart|diagram|approach|result)\b"
+    r"|\bthe (former|latter)\b"
+    r"|^(This|These|It|They)\b",
+    re.I | re.M,
+)
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
 
@@ -93,67 +96,38 @@ def _route(p: Profile) -> tuple[str, str]:
 
         if available():
             return "semantic", base_reason + ", grouping by embedding topic drift"
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("semantic availability probe failed (%s) — routing to paragraph_fallback", exc)
     return "paragraph_fallback", base_reason + ", packing at paragraph boundaries"
 
 
-# ───────── cut selection with hard vetoes ─────────
+from .boundary_engine import choose_universal_cut
+
+
+# ───────── cut selection with universal boundary engine and hard vetoes ─────────
 
 @dataclass(slots=True)
 class CutResult:
     index: int | None                 # boundary BEFORE elements[index]; None = keep whole
     vetoes: list[str] = field(default_factory=list)
     overflow: bool = False
+    trace: dict[str, Any] = field(default_factory=dict)
 
 
 def choose_cut(region: list[ContentElement], graph: ContextGraph,
                target_tokens: int = TARGET_TOKENS) -> CutResult:
-    """Pick the paragraph boundary closest to the token target that severs no
-    hard relationship. Overflow beats severance: if every candidate is vetoed,
+    """Pick the optimal boundary that maximizes multi-modal cohesion and severs
+    no hard relationship. Overflow beats severance: if every candidate is vetoed,
     the region stays whole and says so."""
-    tokens = [count_tokens(e.text) for e in region]
-    candidates = list(range(1, len(region)))
-    if not candidates:
-        return CutResult(index=None, overflow=True)
-
-    def tokens_before(i: int) -> int:
-        return sum(tokens[:i])
-
-    vetoes: list[str] = []
-    soft: list[int] = []
-    for i in sorted(candidates, key=lambda i: abs(tokens_before(i) - target_tokens)):
-        before, after = region[i - 1], region[i]
-        # HARD: never strand a heading at the end of a chunk
-        if before.kind == "heading":
-            vetoes.append(
-                f"cut before {after.id} rejected: would strand heading {before.text[:60]!r}"
-            )
-            continue
-        # HARD: never separate a caption from its float (safety net — floats are
-        # normally carved out before text regions form)
-        cap_pair = _caption_pair(before, after, graph)
-        if cap_pair:
-            vetoes.append(f"cut before {after.id} rejected: severs {cap_pair}")
-            continue
-        # SOFT: prefer not to cut inside a consecutive list run
-        if before.kind == "list_item" and after.kind == "list_item":
-            soft.append(i)
-            continue
-        return CutResult(index=i, vetoes=vetoes)
-
-    if soft:
-        i = min(soft, key=lambda i: abs(tokens_before(i) - target_tokens))
-        vetoes.append(f"no clean boundary — cut inside list run before {region[i].id} (least-bad)")
-        return CutResult(index=i, vetoes=vetoes)
-    return CutResult(index=None, vetoes=vetoes, overflow=True)
+    res = choose_universal_cut(region, graph, target_tokens=target_tokens)
+    return CutResult(index=res.index, vetoes=res.vetoes, overflow=res.overflow, trace=res.trace)
 
 
 def _caption_pair(a: ContentElement, b: ContentElement, graph: ContextGraph) -> str | None:
     for x, y in ((a, b), (b, a)):
-        if x.kind == "caption" and y.kind in ("table", "figure"):
-            if x.id in graph.captions_of(y.id):
-                return f"CAPTIONS {x.id} ↔ {y.id}"
+        if (x.kind == "caption" and y.kind in ("table", "figure")
+                and x.id in graph.captions_of(y.id)):
+            return f"CAPTIONS {x.id} ↔ {y.id}"
     return None
 
 
@@ -163,7 +137,7 @@ def anaphora_rate(text: str) -> float:
     sentences = [s for s in _SENT_SPLIT.split(text) if s.strip()]
     if not sentences:
         return 0.0
-    hits = sum(1 for s in sentences if any(rx.search(s) for rx in _ANAPHORA_RES))
+    hits = sum(1 for s in sentences if _ANAPHORA_RE.search(s))
     return hits / len(sentences)
 
 

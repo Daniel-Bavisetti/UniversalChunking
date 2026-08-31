@@ -12,8 +12,8 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
+from .markdown import table_markdown as _table_markdown
 from .models import ContentElement, count_tokens, sha256_of
 
 log = logging.getLogger(__name__)
@@ -70,18 +70,25 @@ def _heading_number(text: str) -> str | None:
 
 
 def _prov(item) -> tuple[int | None, tuple[float, float, float, float] | None]:
+    """Page and bbox, when Docling recorded them.
+
+    Debug rather than warning: plenty of items legitimately carry no
+    provenance, and the caller has a designed fallback."""
     try:
         p = item.prov[0]
         bbox = p.bbox
         return p.page_no, (float(bbox.l), float(bbox.t), float(bbox.r), float(bbox.b))
-    except Exception:
+    except Exception as exc:
+        log.debug("no provenance for %s: %s", type(item).__name__, exc)
         return None, None
 
 
 def _grid_texts(table) -> list[list[str]]:
     try:
         return [[(c.text or "").strip() for c in row] for row in table.data.grid]
-    except Exception:
+    except Exception as exc:
+        # This one loses data: the table survives as text but its cells do not.
+        log.warning("table grid unreadable (%s) — table kept as text only", exc)
         return []
 
 
@@ -91,19 +98,12 @@ def _header_row(table) -> list[str]:
         for row in table.data.grid:
             if any(getattr(c, "column_header", False) for c in row):
                 return [(c.text or "").strip() for c in row]
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("no marked header row (%s); falling back to the first row", exc)
     grid = _grid_texts(table)
     return grid[0] if grid else []
 
 
-def _table_markdown(grid: list[list[str]]) -> str:
-    if not grid:
-        return ""
-    lines = ["| " + " | ".join(row) + " |" for row in grid]
-    if len(lines) > 1:
-        lines.insert(1, "|" + "---|" * len(grid[0]))
-    return "\n".join(lines)
 
 
 def ingest_document(path: str | Path) -> IngestResult:
@@ -130,8 +130,12 @@ def ingest_document(path: str | Path) -> IngestResult:
     def current_parent() -> str | None:
         return heading_stack[-1][1] if heading_stack else None
 
-    from docling_core.types.doc import DocItemLabel  # noqa: PLC0415
-    from docling_core.types.doc import PictureItem, TableItem, TextItem  # noqa: PLC0415
+    from docling_core.types.doc import (  # noqa: PLC0415
+        DocItemLabel,
+        PictureItem,
+        TableItem,
+        TextItem,
+    )
 
     SKIP = {DocItemLabel.PAGE_HEADER, DocItemLabel.PAGE_FOOTER, DocItemLabel.FOOTNOTE}
 

@@ -16,17 +16,14 @@ is the fallback, not the assumption.
 from __future__ import annotations
 
 import logging
-import os
-from functools import lru_cache
-from pathlib import Path
+import threading
+import time
 from typing import Protocol
 
-import httpx
+from .config import settings
+from .http import client, request_with_retry
 
 log = logging.getLogger(__name__)
-
-TIMEOUT_S = float(os.environ.get("CLEAVE_LLM_TIMEOUT", "90"))
-OLLAMA_URL = os.environ.get("CLEAVE_OLLAMA_URL", "http://127.0.0.1:11434")
 
 #: Small instruct models that follow a JSON schema reliably, best first. The
 #: first one already pulled locally is used.
@@ -36,25 +33,63 @@ OLLAMA_PREFERRED = (
 )
 
 
-def _find_gemini_key() -> str:
-    """Env first, then the sibling projects' .env files."""
-    key = os.environ.get("GEMINI_API_KEY", "")
-    if key:
-        return key
-    for env in (Path.home() / "PycharmProjects/universalOCR/.env",
-                Path.home() / "PycharmProjects/uniflo/.env"):
+#: How long a tag probe is trusted. A success is stable — a model list rarely
+#: changes mid-session. A failure is cached for only a few seconds, because the
+#: previous ``lru_cache(maxsize=1)`` remembered one transient connection refusal
+#: for the entire process lifetime: start Ollama a moment after the server and
+#: it would never be found, with no log line to say so.
+_TAGS_TTL_OK = 60.0
+_TAGS_TTL_FAIL = 5.0
+
+_tags_state: tuple[float, tuple[str, ...]] | None = None
+_tags_lock = threading.Lock()
+
+
+def ollama_tags() -> tuple[str, ...]:
+    """Models currently served by Ollama, cached briefly.
+
+    Locked because ``describe_providers`` builds two providers and the homepage
+    can be requested concurrently.
+    """
+    global _tags_state
+    with _tags_lock:
+        now = time.monotonic()
+        if _tags_state is not None and now < _tags_state[0]:
+            return _tags_state[1]
+        url = settings().ollama_url
         try:
-            for line in env.read_text().splitlines():
-                if line.startswith("GEMINI_API_KEY=") and line.split("=", 1)[1].strip():
-                    return line.split("=", 1)[1].strip()
-        except OSError:
-            continue
-    return ""
+            # A liveness probe, so no retries: a retry would treble the latency
+            # of every homepage render when Ollama simply is not running.
+            r = client().get(f"{url}/api/tags", timeout=2.0)
+            r.raise_for_status()
+            tags = tuple(m["name"] for m in r.json().get("models", []))
+            _tags_state = (now + _TAGS_TTL_OK, tags)
+            return tags
+        except Exception as exc:
+            log.info("ollama not reachable at %s (%s) — re-probing in %.0fs",
+                     url, exc, _TAGS_TTL_FAIL)
+            _tags_state = (now + _TAGS_TTL_FAIL, ())
+            return ()
+
+
+def reset_tags_cache() -> None:
+    """Forget the probe result. For tests, and after a config reload."""
+    global _tags_state
+    with _tags_lock:
+        _tags_state = None
 
 
 class LLMProvider(Protocol):
     name: str
-    model: str
+
+    @property
+    def model(self) -> str:
+        """The billing identity of this provider, e.g. ``ollama/qwen3:4b``.
+
+        A read-only property rather than an attribute: the implementations
+        derive it (Ollama prefixes its tag) and nothing should assign to it.
+        """
+        ...  # pragma: no cover
 
     def is_configured(self) -> bool: ...
 
@@ -77,11 +112,16 @@ class OllamaProvider:
     name = "ollama"
 
     def __init__(self, model: str | None = None) -> None:
-        self._model = model or os.environ.get("CLEAVE_OLLAMA_MODEL", "")
+        self._model = model or settings().ollama_model
 
     @property
     def model(self) -> str:
         return f"ollama/{self._model}" if self._model else "ollama/none"
+
+    @property
+    def local_model(self) -> str:
+        """The bare model tag, without the ``ollama/`` prefix — for the UI."""
+        return self._model
 
     def is_configured(self) -> bool:
         tags = self._tags()
@@ -98,18 +138,8 @@ class OllamaProvider:
         self._model = tags[0]
         return True
 
-    @staticmethod
-    @lru_cache(maxsize=1)
-    def _tags_cached() -> tuple[str, ...]:
-        try:
-            r = httpx.get(f"{OLLAMA_URL}/api/tags", timeout=2.0)
-            r.raise_for_status()
-            return tuple(m["name"] for m in r.json().get("models", []))
-        except Exception:
-            return ()
-
     def _tags(self) -> tuple[str, ...]:
-        return self._tags_cached()
+        return ollama_tags()
 
     def complete_json(self, prompt: str, *, system: str | None = None,
                       schema: dict | None = None) -> tuple[str, dict]:
@@ -132,7 +162,14 @@ class OllamaProvider:
             # valid JSON by construction rather than by asking nicely.
             body["format"] = schema
         try:
-            r = httpx.post(f"{OLLAMA_URL}/api/generate", json=body, timeout=TIMEOUT_S)
+            cfg = settings()
+            r = request_with_retry(
+                "POST", f"{cfg.ollama_url}/api/generate", json=body,
+                timeout=cfg.llm_timeout_s,
+                # A local model that fails twice is down, not busy; a third
+                # attempt just costs another full timeout.
+                attempts=2,
+            )
             r.raise_for_status()
             data = r.json()
             text = (data.get("response") or "").strip()
@@ -154,8 +191,9 @@ class GeminiProvider:
     name = "gemini"
 
     def __init__(self) -> None:
-        self.key = _find_gemini_key()
-        self._model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+        cfg = settings()
+        self.key = cfg.gemini_api_key
+        self._model = cfg.gemini_model
 
     @property
     def model(self) -> str:
@@ -179,10 +217,16 @@ class GeminiProvider:
         if system:
             body["systemInstruction"] = {"parts": [{"text": system}]}
         try:
-            r = httpx.post(
+            # The key goes in a header, not a query parameter: query strings end
+            # up in proxy logs, browser history and exception reprs.
+            r = request_with_retry(
+                "POST",
                 f"https://generativelanguage.googleapis.com/v1beta/models/"
                 f"{self._model}:generateContent",
-                params={"key": self.key}, json=body, timeout=TIMEOUT_S,
+                headers={"x-goog-api-key": self.key},
+                json=body,
+                timeout=settings().llm_timeout_s,
+                attempts=3,
             )
             r.raise_for_status()
             data = r.json()
@@ -220,7 +264,7 @@ def get_provider() -> LLMProvider:
     Without it, a running local model is preferred because it is free and keeps
     the document on this machine; the paid API is the fallback.
     """
-    choice = os.environ.get("CLEAVE_LLM", "").lower()
+    choice = settings().llm
     if choice == "none":
         return NoneProvider()
     if choice == "ollama":
@@ -246,7 +290,7 @@ def describe_providers() -> list[dict]:
     o_ok, g_ok = o.is_configured(), g.is_configured()
     active = get_provider()
     return [
-        {"name": "ollama", "label": "Local (Ollama)", "model": o._model or "—",
+        {"name": "ollama", "label": "Local (Ollama)", "model": o.local_model or "—",
          "available": o_ok, "cost": "free", "active": active.name == "ollama"},
         {"name": "gemini", "label": "Gemini API", "model": g.model if g_ok else "—",
          "available": g_ok, "cost": "paid", "active": active.name == "gemini"},

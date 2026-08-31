@@ -1,0 +1,28 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      # No provider probe reaches the network, and no paid call can be made.
+      CLEAVE_LLM: none
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --all-groups
+      - name: lint
+        run: uv run ruff check .
+      - name: typecheck
+        run: uv run mypy
+      - name: test
+        # Docling downloads CV models on the first PDF, so this job is minutes,
+        # not seconds. Mocking the parse would weaken the suite's whole point.
+        run: uv run pytest -q --cov=cleave --cov-report=term-missing

@@ -9,18 +9,22 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from .completeness import enrich_context_completeness
+from .conversational import classify_conversational_elements
 from .graph import ContextGraph
 from .ingest_document import IngestResult
+from .markdown import body_rows, header_md, row_md
 from .models import (
     ChunkingDecision,
     ContentElement,
     Context,
     KnowledgeUnit,
+    KnowledgeUnitType,
     Modality,
     Profile,
     Provenance,
-    RelationType,
     Relationship,
+    RelationType,
     Temporal,
     count_tokens,
 )
@@ -79,6 +83,8 @@ def chunk(ingest: IngestResult, graph: ContextGraph) -> tuple[list[KnowledgeUnit
 
     # 2 — the routed strategy over the remaining stream
     stream = [e for e in elements if e.id not in consumed]
+    # The deterministic routes do what they say; only the packed path can differ.
+    profile.route_actual = profile.route
     if profile.route == "tabular":
         # tables ARE the content here, so undo the atomic carve-out above and
         # let the tabular path own them
@@ -94,8 +100,15 @@ def chunk(ingest: IngestResult, graph: ContextGraph) -> tuple[list[KnowledgeUnit
         text_units = _structural_units(stream, graph, new_unit_id, base_provenance,
                                        ingest.title, profile)
     else:
-        text_units = _packed_units(stream, graph, new_unit_id, base_provenance,
-                                   ingest.title, profile, strategy="paragraph_fallback")
+        text_units, actual = _packed_units(
+            stream, graph, new_unit_id, base_provenance,
+            ingest.title, profile, strategy="paragraph_fallback")
+        profile.route_actual = actual
+        if actual != profile.route:
+            # The router asked whether the embedding model *could* run; this is
+            # what it actually produced. Reporting the guess as fact made the
+            # receipts disagree with themselves.
+            profile.route_reason += f" (fell back to {actual})"
     for u, members in text_units:
         units.append(u)
         members_by_unit[u.id] = list(members)
@@ -115,6 +128,11 @@ def chunk(ingest: IngestResult, graph: ContextGraph) -> tuple[list[KnowledgeUnit
     units.sort(key=lambda u: (first_pos[u.id], emitted[u.id]))
 
     _project_relationships(units, el_to_unit, graph)
+    _link_hierarchical_units(units)
+
+    for u in units:
+        enrich_context_completeness(u, graph)
+
     log.info("chunked %s: %d units via %s", ingest.source_uri, len(units), profile.route)
     return units, profile
 
@@ -132,6 +150,9 @@ def _atomic_units(e: ContentElement, captions: list[ContentElement],
     def make(content: str, reason: str, vetoed: list[str], part: str | None = None):
         flags = escalation_flags(content, heading_path, "atomic",
                                  kind=e.kind, has_caption=bool(cap_text))
+        ku_type = KnowledgeUnitType.TABLE.value if e.kind == "table" else (
+            KnowledgeUnitType.FIGURE.value if e.kind == "figure" else KnowledgeUnitType.GENERIC.value
+        )
         return KnowledgeUnit(
             id=new_unit_id(),
             content=content,
@@ -145,8 +166,11 @@ def _atomic_units(e: ContentElement, captions: list[ContentElement],
                 signals={"caption_confidence":
                          1.0 if e.meta.get("caption_ids") else (0.8 if cap_text else 0.0)},
             ),
-            metadata={"element_kind": e.kind, **({"part": part} if part else {})},
+            metadata={"element_kind": e.kind, "granularity": "adaptive",
+                      "size_reason": ["atomic_float_integrity"],
+                      **({"part": part} if part else {})},
             token_count=count_tokens(content),
+            knowledge_unit_type=ku_type,
         )
 
     body = e.text if e.kind == "table" else ""
@@ -161,16 +185,16 @@ def _atomic_units(e: ContentElement, captions: list[ContentElement],
         return
 
     # oversized table: split by rows, header repeated on every continuation
-    head_md = "| " + " | ".join(header) + " |\n|" + "---|" * max(1, len(header)) if header else ""
-    rows = grid[1:] if header and grid and grid[0] == header else grid
-    batch: list[str] = []
+    head_md = header_md(header)
+    rows = body_rows(grid, header)
+    batch: list[list[str]] = []
     part_no = 1
 
     def flush():
         nonlocal batch, part_no
         if not batch:
             return None
-        rows_md = "\n".join("| " + " | ".join(r) + " |" for r in batch)
+        rows_md = "\n".join(row_md(r) for r in batch)
         content = "\n".join(x for x in (cap_text, head_md, rows_md) if x)
         u = make(
             content,
@@ -185,8 +209,8 @@ def _atomic_units(e: ContentElement, captions: list[ContentElement],
     budget = count_tokens(head_md) + count_tokens(cap_text)
     acc = budget
     for r in rows:
-        row_md = "| " + " | ".join(r) + " |"
-        t = count_tokens(row_md)
+        line = row_md(r)
+        t = count_tokens(line)
         if batch and acc + t > TARGET_TOKENS:
             u = flush()
             if u:
@@ -230,20 +254,30 @@ def _packed_units(stream, graph, new_unit_id, base_provenance, title, profile,
     """Pack the whole stream to ~TARGET tokens, boundaries only between
     elements, same veto rules. When the embedding model is available, topic
     drift picks the groups first (strategy upgrades to 'semantic')."""
+    reason = ""
     try:
         from .semantic import semantic_groups  # noqa: PLC0415
 
         groups = semantic_groups(stream)
-    except Exception:
+        if groups is None:
+            reason = "too few elements to measure topic drift"
+        elif len(groups) <= 1:
+            reason = "no topic drift found — the stream reads as one topic"
+    except Exception as exc:
+        log.warning("semantic grouping failed (%s) — packing at paragraph boundaries", exc)
         groups = None
+        reason = f"semantic grouping failed: {exc}"
     if groups and len(groups) > 1:
         out = []
         for g in groups:
             out.extend(_emit_region(g, graph, new_unit_id, base_provenance, title,
                                     strategy="semantic", profile=profile))
-        return out
-    return _emit_region(stream, graph, new_unit_id, base_provenance, title,
-                        strategy=strategy, profile=profile)
+        return out, "semantic"
+    units = _emit_region(stream, graph, new_unit_id, base_provenance, title,
+                         strategy=strategy, profile=profile)
+    if reason:
+        log.info("packed at paragraph boundaries: %s", reason)
+    return units, strategy
 
 
 def _emit_region(region, graph, new_unit_id, base_provenance, title,
@@ -264,14 +298,16 @@ def _emit_region(region, graph, new_unit_id, base_provenance, title,
                                   strategy,
                                   reason=(f"{tokens} tokens with no safe boundary — kept whole "
                                           "(overflow beats severing a relationship)"),
-                                  vetoed=cut.vetoes, overflow=True, profile=profile))
+                                  vetoed=cut.vetoes, overflow=True, profile=profile,
+                                  trace=cut.trace))
             continue
         left, right = reg[:cut.index], reg[cut.index:]
         out.append(_text_unit(left, graph, new_unit_id, base_provenance, title,
                               strategy,
                               reason=(f"section of {tokens} tokens split at the paragraph "
                                       f"boundary nearest {TARGET_TOKENS} tokens"),
-                              vetoed=cut.vetoes, overflow=False, profile=profile))
+                              vetoed=cut.vetoes, overflow=False, profile=profile,
+                              trace=cut.trace))
         queue.insert(0, right)
     return out
 
@@ -290,14 +326,17 @@ def _whole_reason(reg, strategy: str, tokens: int) -> str:
 
 def _text_unit(members, graph, new_unit_id, base_provenance, title,
                strategy: str, reason: str, vetoed: list[str], overflow: bool,
-               profile: Profile):
+               profile: Profile, trace: dict | None = None):
     content = "\n\n".join(e.text for e in members if e.text)
     anchor = members[0]
     heading_path = graph.heading_path(anchor.id)
     if anchor.kind == "heading":
         # a section unit is situated by its ancestors PLUS its own heading
-        heading_path = heading_path + [anchor.text]
+        heading_path = [*heading_path, anchor.text]
     flags = escalation_flags(content, heading_path, strategy)
+
+    ku_type = KnowledgeUnitType.SECTION.value if anchor.kind == "heading" else KnowledgeUnitType.NARRATIVE.value
+
     unit = KnowledgeUnit(
         id=new_unit_id(),
         content=content,
@@ -313,7 +352,14 @@ def _text_unit(members, graph, new_unit_id, base_provenance, title,
                 "overflow": 1.0 if overflow else 0.0,
             },
         ),
+        metadata={
+            "element_kind": "section" if anchor.kind == "heading" else "prose",
+            "granularity": "adaptive",
+            "size_reason": [f"{strategy}_cohesion"],
+        },
         token_count=count_tokens(content),
+        knowledge_unit_type=ku_type,
+        boundary_trace=trace or {},
     )
     return unit, [e.id for e in members]
 
@@ -321,14 +367,7 @@ def _text_unit(members, graph, new_unit_id, base_provenance, title,
 # ───────── tabular (CSV / XLSX) ─────────
 
 def _tabular_units(tables, new_unit_id, base_provenance, ingest):
-    """One schema card per sheet, then header-repeating row groups.
-
-    The schema card is the only unit here that can benefit from an LLM (it is
-    the one place a human-readable "what is this dataset" line adds something
-    structure cannot supply), so it is the only one flagged. Row groups are
-    fully self-describing and stay tier 0 — which is why a 480-row file costs
-    one LLM call rather than forty.
-    """
+    """One schema card per sheet, then header-repeating row groups."""
     from .tabular import (  # noqa: PLC0415
         TABULAR_MAX_TOKENS,
         profile_table,
@@ -364,8 +403,10 @@ def _tabular_units(tables, new_unit_id, base_provenance, ingest):
                 escalation_flags=["dataset summary — a one-line description of what these "
                                   "columns represent cannot be derived from structure alone"],
             ),
-            metadata={"element_kind": "schema_card", **prof.to_meta()},
+            metadata={"element_kind": "schema_card", "granularity": "adaptive",
+                      "size_reason": ["dataset_schema_profiling"], **prof.to_meta()},
             token_count=count_tokens(prof.schema_card(source_name)),
+            knowledge_unit_type=KnowledgeUnitType.SCHEMA_CARD.value,
         )
         out.append((card, [t.id]))
 
@@ -395,8 +436,10 @@ def _tabular_units(tables, new_unit_id, base_provenance, ingest):
                                             "column types and ranges for these rows")],
                 metadata={"element_kind": "row_group", "sheet": sheet,
                           "first_row": first_row, "last_row": last_row,
-                          "columns": header},
+                          "columns": header, "granularity": "adaptive",
+                          "size_reason": ["row_boundary_integrity", "header_repetition"]},
                 token_count=count_tokens(content),
+                knowledge_unit_type=KnowledgeUnitType.ROW_GROUP.value,
             )
             if unit.token_count > TABULAR_MAX_TOKENS:
                 unit.decision.signals["overflow"] = 1.0
@@ -441,6 +484,12 @@ def _temporal_units(stream, graph, new_unit_id, base_provenance, title):
         for span in _split_long_turn(t):
             content = " ".join(e.text for e in span)
             speaker = span[0].speaker
+            ku_type, conv_meta = classify_conversational_elements(span)
+            merged_meta = _merge_span_meta(span)
+            merged_meta.update(conv_meta)
+            merged_meta["granularity"] = "adaptive"
+            merged_meta["size_reason"] = ["speaker_turn_boundary", "temporal_continuity"]
+
             unit = KnowledgeUnit(
                 id=new_unit_id(),
                 content=content,
@@ -456,8 +505,9 @@ def _temporal_units(stream, graph, new_unit_id, base_provenance, title):
                 ),
                 temporal=Temporal(start_s=span[0].t0 or 0.0, end_s=span[-1].t1 or 0.0,
                                   speaker=speaker),
-                metadata=_merge_span_meta(span),
+                metadata=merged_meta,
                 token_count=count_tokens(content),
+                knowledge_unit_type=ku_type,
             )
             out.append((unit, [e.id for e in span]))
     return out
@@ -496,26 +546,60 @@ def _split_long_turn(turn, max_s: float = 120.0):
     yield from _split_long_turn(turn[cut:], max_s)
 
 
-# ───────── relationship projection ─────────
+# ───────── relationship projection & hierarchy ─────────
 
 def _project_relationships(units, el_to_unit, graph: ContextGraph) -> None:
     """Element edges → unit edges where endpoints land in different units,
     restricted to the kept types. Hierarchy stays denormalized as heading_path."""
     by_id = {u.id: u for u in units}
+    # Track existing (type, target_id) pairs per unit for O(1) dedup
+    _seen: dict[str, set[tuple[str, str]]] = {u.id: set() for u in units}
     for src_el, dst_el, d in graph.g.edges(data=True):
         if d["type"] != "references":
             continue
         su, du = el_to_unit.get(src_el), el_to_unit.get(dst_el)
         if not su or not du or su == du:
             continue
-        unit = by_id[su]
-        if any(r.target_id == du and r.type == RelationType.REFERENCES
-               for r in unit.relationships):
+        key = (RelationType.REFERENCES, du)
+        if key in _seen[su]:
             continue
-        unit.relationships.append(Relationship(
+        _seen[su].add(key)
+        by_id[su].relationships.append(Relationship(
             type=RelationType.REFERENCES, target_id=du,
             confidence=d["confidence"], evidence=d["evidence"],
         ))
     for a, b in zip(units, units[1:]):
         a.relationships.append(Relationship(RelationType.NEXT, b.id, 1.0, "reading order"))
         b.relationships.append(Relationship(RelationType.PREVIOUS, a.id, 1.0, "reading order"))
+
+
+def _link_hierarchical_units(units: list[KnowledgeUnit]) -> None:
+    """Establish parent-child relationships and hierarchy across KnowledgeUnits."""
+    by_heading: dict[str, list[KnowledgeUnit]] = {}
+    for u in units:
+        if u.context.heading_path:
+            path_key = " > ".join(u.context.heading_path)
+            by_heading.setdefault(path_key, []).append(u)
+
+    # Pre-build per-unit relationship keys for O(1) dedup
+    _rel_keys: dict[str, set[tuple[str, str]]] = {
+        u.id: {(r.type if isinstance(r.type, str) else r.type.value, r.target_id)
+               for r in u.relationships}
+        for u in units
+    }
+
+    for _path_key, members in by_heading.items():
+        if len(members) > 1:
+            parent = members[0]
+            for child in members[1:]:
+                child.parent_id = parent.id
+                if child.id not in parent.child_ids:
+                    parent.child_ids.append(child.id)
+                p_key = (RelationType.PARENT_OF.value, child.id)
+                if p_key not in _rel_keys[parent.id]:
+                    parent.relationships.append(Relationship(RelationType.PARENT_OF, child.id, 1.0, "section hierarchy"))
+                    _rel_keys[parent.id].add(p_key)
+                c_key = (RelationType.CHILD_OF.value, parent.id)
+                if c_key not in _rel_keys[child.id]:
+                    child.relationships.append(Relationship(RelationType.CHILD_OF, parent.id, 1.0, "section hierarchy"))
+                    _rel_keys[child.id].add(c_key)
