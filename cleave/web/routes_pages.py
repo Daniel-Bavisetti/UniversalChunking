@@ -40,7 +40,7 @@ def index(request: Request):
         except (OSError, ValueError) as exc:
             # A malformed scorecard used to take the homepage down with it.
             log.warning("scorecard unreadable (%s) — rendering without it", exc)
-    jobs = sorted(JOBS.values(), key=lambda j: j.created, reverse=True)[:10]
+    jobs = sorted(JOBS.values(), key=lambda j: j.created, reverse=True)
     return templates.TemplateResponse(request, "index.html", {
         "jobs": jobs, "scorecard": scorecard,
         "usage": read_cumulative(), "providers": describe_providers(),

@@ -263,7 +263,12 @@
 
   {# ── jobs ── #}
   <section id="jobs" class="scroll-mt-24 pb-20 pt-6">
-    <div class="label mb-3">Recent jobs</div>
+    <div class="flex items-center justify-between mb-3">
+      <div class="label">All jobs / chunks</div>
+      {% if jobs %}
+      <span class="text-[12px] text-[color:var(--muted)] font-mono">{{ jobs|length }} total</span>
+      {% endif %}
+    </div>
     {% if jobs %}
     <ul class="grid gap-2 sm:grid-cols-2">
       {% for j in jobs %}
