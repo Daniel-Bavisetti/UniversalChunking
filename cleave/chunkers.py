@@ -95,7 +95,11 @@ def chunk(ingest: IngestResult, graph: ContextGraph) -> tuple[list[KnowledgeUnit
         text_units = _tabular_units([e for e in elements if e.kind == "table"],
                                     new_unit_id, base_provenance, ingest)
     elif profile.route == "temporal":
-        text_units = _temporal_units(stream, graph, new_unit_id, base_provenance, ingest.title)
+        if any(e.kind in ("visual_event", "slide") for e in stream):
+            from .chunkers_multimodal import chunk_multimodal_stream  # noqa: PLC0415
+            text_units = chunk_multimodal_stream(stream, graph, new_unit_id, base_provenance, ingest.title)
+        else:
+            text_units = _temporal_units(stream, graph, new_unit_id, base_provenance, ingest.title)
     elif profile.route == "structural":
         text_units = _structural_units(stream, graph, new_unit_id, base_provenance,
                                        ingest.title, profile)
@@ -453,27 +457,39 @@ def _tabular_units(tables, new_unit_id, base_provenance, ingest):
 # ───────── temporal (stretch — exercised by audio/video elements) ─────────
 
 def _temporal_units(stream, graph, new_unit_id, base_provenance, title):
-    """Speaker change = boundary; turns <3s merge into the neighbour; runs
-    >120s split at the largest inter-segment pause."""
+    """Speaker change = hard boundary; turns <3s of the SAME speaker merge;
+    runs >120s split at the largest inter-segment pause.
+
+    This is the audio-only path.  Speaker attribution is sacred here: a brief
+    reply from speaker B must never be absorbed into speaker A's turn.
+
+    The multimodal path (chunk_multimodal_stream) uses select_event_windows()
+    which applies scored soft boundaries and can keep cross-speaker conversational
+    exchanges together when visual/temporal context supports it.
+    """
     segs = [e for e in stream if e.t0 is not None]
     if not segs:
         return []
+
+    # Group into same-speaker runs (speaker change = new run)
     turns: list[list[ContentElement]] = []
     for e in segs:
         if turns and turns[-1][-1].speaker == e.speaker:
             turns[-1].append(e)
         else:
             turns.append([e])
-    # Absorb micro-turns — but never across a speaker change. A two-second
-    # answer is still that person's answer, and folding it into the previous
-    # speaker's turn would attribute their words to someone else, which is the
-    # one thing temporal chunking exists to prevent. Only unattributed
-    # fragments and same-speaker stutters merge.
+
+    # Absorb micro-turns — but NEVER across a speaker change.
+    # A two-second answer is still that person's answer; folding it into the
+    # previous speaker's turn would attribute their words to someone else.
+    # Only unattributed fragments and same-speaker stutters merge.
     merged: list[list[ContentElement]] = []
     for t in turns:
         dur = (t[-1].t1 or 0) - (t[0].t0 or 0)
-        same_voice = merged and (t[0].speaker is None
-                                 or t[0].speaker == merged[-1][-1].speaker)
+        same_voice = merged and (
+            t[0].speaker is None
+            or t[0].speaker == merged[-1][-1].speaker
+        )
         if merged and dur < 3.0 and same_voice:
             merged[-1].extend(t)
         else:
@@ -511,6 +527,7 @@ def _temporal_units(stream, graph, new_unit_id, base_provenance, title):
             )
             out.append((unit, [e.id for e in span]))
     return out
+
 
 
 def _merge_span_meta(span) -> dict:

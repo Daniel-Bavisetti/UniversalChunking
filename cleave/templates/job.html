@@ -1,27 +1,16 @@
 {% extends "base.html" %}
-{% block title %}{{ job.filename }} — Cleave{% endblock %}
+{% block title %}{{ job.filename }} — CLEAVE Knowledge Explorer{% endblock %}
 
-{% block nav %}
-<div class="flex items-center gap-3">
-  <span class="mono hidden text-[11px] text-[color:var(--faint)] sm:inline">{{ job.id }}</span>
-  <a href="/" class="btn-ghost">
-    <svg viewBox="0 0 16 16" class="h-3 w-3" fill="none" stroke="currentColor"
-         stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M13 8H4M7.5 4.5L4 8l3.5 3.5"/></svg>
-    New file
+{% block nav_extra %}
+<div class="flex items-center gap-2">
+  <a href="/" class="btn-subtle !py-1 !px-2.5 text-xs">
+    ← New File
   </a>
 </div>
 {% endblock %}
 
 {% block body %}
-<main class="mx-auto max-w-6xl px-6 py-8">
-
-  <header class="mb-7">
-    <div class="label">Result</div>
-    <h1 class="mt-1.5 truncate text-[1.75rem] font-bold text-white">{{ job.filename }}</h1>
-  </header>
-
+<main class="mx-auto max-w-7xl px-6 py-8">
   {% include "_status.html" %}
-
 </main>
 {% endblock %}

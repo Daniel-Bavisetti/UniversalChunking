@@ -89,21 +89,46 @@ def generate_candidates_for_region(
         if before.t1 is not None and after.t0 is not None:
             gap = max(0.0, float(after.t0 - before.t1))
             signals["temporal_gap"] = min(1.0, gap / 3.0)
-            if before.speaker != after.speaker:
+            if before.speaker != after.speaker and before.speaker is not None and after.speaker is not None:
                 signals["speaker_change"] = 1.0
                 reasons.append(f"speaker change ({before.speaker} → {after.speaker})")
-                is_hard = True
+                # Speaker change is a STRONG soft boundary — not a hard one.
+                # The boundary engine decides based on combined evidence; a single
+                # speaker change does not automatically split a conversational event.
+                is_soft = True
             elif gap >= 2.0:
                 signals["pause_strength"] = min(1.0, gap / 5.0)
                 reasons.append(f"pause duration {gap:.1f}s")
                 is_soft = True
 
         # 5. Visual signals (video keyframes, visual events, scene transitions)
+        # Shot-level camera cuts are weaker than semantic scene/context transitions.
+        # Use meta["visual_change_type"] when the video worker provides it:
+        #   "shot"  — camera angle/cut only (weak boundary)
+        #   "scene" — location/activity/context change (strong boundary)
+        #   "slide" — slide/screen change (strong boundary)
+        #   "event" — meaningful occurrence (strong boundary)
+        cfg_ref = settings()
+        vc_type_before = before.meta.get("visual_change_type")
+        vc_type_after = after.meta.get("visual_change_type")
+        vc_type = vc_type_after or vc_type_before  # prefer the arriving element's type
+
         before_vis = before.meta.get("visual_summary") or before.meta.get("scene")
         after_vis = after.meta.get("visual_summary") or after.meta.get("scene")
-        if before_vis and after_vis and before_vis != after_vis:
+
+        if vc_type == "shot":
+            # Camera-only cut — contributes weak evidence; should not anchor a chunk alone
+            signals["visual_change"] = cfg_ref.weight_shot_change
+            reasons.append(f"shot change (camera cut only, weight={cfg_ref.weight_shot_change})")
+        elif vc_type in ("scene", "slide", "event"):
+            # Meaningful visual context change
+            signals["visual_change"] = 0.85
+            reasons.append(f"visual {vc_type} transition")
+        elif before_vis and after_vis and before_vis != after_vis:
+            # No explicit type from worker — infer from summary change (scene-level)
             signals["visual_change"] = 0.85
             reasons.append(f"visual scene transition ({before_vis[:30]!r} → {after_vis[:30]!r})")
+
         if after.kind == "visual_event":
             signals["scene_change"] = 0.95
             reasons.append("visual event boundary")
@@ -124,7 +149,10 @@ def generate_candidates_for_region(
         # 8. Graph separation signal
         signals["graph_separation"] = graph.graph_separation_score(before.id, after.id)
 
-        # 9. Multimodal consensus calculation
+        # 9. Cross-modal agreement: count independent signals above a meaningful
+        # threshold and produce a consensus bonus. More signals = higher bonus.
+        # pause_strength and semantic_shift are counted separately from their
+        # parent categories to reward genuinely independent evidence.
         independent_signals = sum(
             1 for s in (
                 signals.get("speaker_change"),
@@ -132,10 +160,12 @@ def generate_candidates_for_region(
                 signals.get("temporal_gap"),
                 signals.get("ocr_change"),
                 signals.get("structural_strength"),
+                signals.get("semantic_shift"),   # pre-computed by video_boundary
+                signals.get("pause_strength"),   # counted separately from temporal_gap
             ) if s and s > 0.5
         )
         if independent_signals >= 2:
-            signals["multimodal_consensus"] = min(1.0, 0.5 + independent_signals * 0.25)
+            signals["multimodal_consensus"] = min(1.0, 0.4 + independent_signals * 0.2)
             reasons.append(f"multimodal agreement ({independent_signals} independent signals)")
 
         cand = BoundaryCandidate(
@@ -186,7 +216,11 @@ def score_candidate(
     score = (
         cfg.weight_structure * signals.get("structural_strength", 0.0)
         + cfg.weight_semantic * signals.get("semantic_shift", 0.0)
-        + cfg.weight_temporal * (signals.get("speaker_change", 0.0) + signals.get("temporal_gap", 0.0))
+        + cfg.weight_temporal * (
+            signals.get("speaker_change", 0.0)
+            + signals.get("temporal_gap", 0.0)
+            + signals.get("pause_strength", 0.0)  # counted separately for consensus but scored together
+        )
         + cfg.weight_visual * (signals.get("visual_change", 0.0) + signals.get("scene_change", 0.0))
         + cfg.weight_ocr * signals.get("ocr_change", 0.0)
         + cfg.weight_graph * signals.get("graph_separation", 0.5)

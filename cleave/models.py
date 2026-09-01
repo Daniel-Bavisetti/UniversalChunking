@@ -42,6 +42,7 @@ class KnowledgeUnitType(str, Enum):
     SPEAKER_TURN = "speaker_turn"
     VISUAL_SCENE = "visual_scene"
     MULTIMODAL_EVENT = "multimodal_event"
+    VIDEO_EVENT = "video_event"       # event-level multimodal chunk from universal boundary engine
     NARRATIVE = "narrative"
     GENERIC = "generic"
 

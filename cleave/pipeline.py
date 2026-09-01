@@ -29,6 +29,7 @@ log = logging.getLogger(__name__)
 
 AUDIO_EXTS = {".mp3", ".m4a", ".wav", ".aac", ".flac", ".ogg"}
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tiff"}
 
 
 class FileOutcome(NamedTuple):
@@ -98,11 +99,28 @@ def run_job(job_id: str, input_paths: list[Path]) -> None:
         if len(files_meta) > 1:
             _link_cross_document_relationships(all_units, files_meta, graph_edges)
 
-        set_progress(job, 90, f"{len(all_units)} knowledge units — writing artifacts…")
+        # Cross-chunk Entity and Topic Enrichment via Gemini
+        if job.use_llm and all_units:
+            try:
+                from .enrich_entities import enrich_entities_batch  # noqa: PLC0415
+                enrich_entities_batch(all_units, max_enrich=15)
+            except Exception as exc:
+                log.debug("Entity enrichment step skipped: %s", exc)
+
+        set_progress(job, 90, f"{len(all_units)} knowledge units — writing artifacts & syncing…")
         graph = ({"nodes": graph_nodes, "edges": graph_edges}
                  if (graph_nodes or graph_edges) else None)
         _write_artifacts(job, all_units, files_meta, graph, t0,
                          ledger=ledger, enrichments=enrichments, failures=failures)
+
+        # Sync to external databases if available
+        try:
+            from .storage import get_vector_db  # noqa: PLC0415
+            vdb = get_vector_db()
+            if vdb.is_available():
+                vdb.insert_units(all_units)
+        except Exception as exc:
+            log.debug("VectorDB sync skipped: %s", exc)
 
         job.elapsed_s = round(time.time() - t0, 1)
         job.progress, job.message, job.status = 100, "done", "done"
@@ -172,10 +190,15 @@ def _process_file(job: Job, input_path: Path, *, prefix: str, ledger, progress) 
         progress(0.1, f"transcribing (STT worker)… ({filename})")
         ingest = ingest_audio(input_path)
     elif suffix in VIDEO_EXTS:
-        from .ingest_video import ingest_video  # noqa: PLC0415
+        from .workers.vision_worker import process_video_file  # noqa: PLC0415
 
-        progress(0.1, f"processing video (multimodal worker)… ({filename})")
-        ingest = ingest_video(input_path)
+        progress(0.1, f"processing video (Gemini multimodal worker)… ({filename})")
+        ingest = process_video_file(input_path)
+    elif suffix in IMAGE_EXTS:
+        from .workers.vision_worker import process_image_file  # noqa: PLC0415
+
+        progress(0.1, f"processing image (Gemini vision worker)… ({filename})")
+        ingest = process_image_file(input_path)
     else:
         from .ingest_document import ingest_document  # noqa: PLC0415
 

@@ -1,46 +1,31 @@
-{% set chip = {
-  "structural":         "border-blue-400/30 bg-blue-500/10 text-blue-300",
-  "atomic":             "border-amber-400/30 bg-amber-500/10 text-amber-300",
-  "tabular":            "border-teal-400/30 bg-teal-500/10 text-teal-300",
-  "semantic":           "border-violet-400/30 bg-violet-500/10 text-violet-300",
-  "paragraph_fallback": "border-slate-400/25 bg-slate-500/10 text-slate-300",
-  "temporal":           "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
-  "imported":           "border-fuchsia-400/30 bg-fuchsia-500/10 text-fuchsia-300",
-} %}
-<div id="query-results" class="mt-3.5">
+<div id="query-results" class="mt-4 space-y-3">
   {% if hits %}
-  <div class="mb-2.5 text-[11.5px] text-[color:var(--faint)]">
-    top {{ hits | length }} for <span class="text-[color:var(--text)]">“{{ q }}”</span> — ranked over
-    each unit's <span class="mono text-[color:var(--muted)]">embed_text()</span>: heading path,
-    situating context, surrounding prose, then content
+  <div class="text-xs text-[color:var(--text-muted)] flex items-center justify-between pb-1 border-b border-[color:var(--border-subtle)]">
+    <span>Top {{ hits | length }} Semantic Matches for “{{ q }}”</span>
+    <span class="font-mono text-[11px]">Ranked via embed_text()</span>
   </div>
-  <div class="space-y-1.5">
+  <div class="space-y-2">
     {% for score, u in hits %}
     <a href="#{{ u.id }}"
-       class="block rounded-xl border border-[color:var(--line)] bg-[color:var(--bg-soft)]
-              px-3.5 py-2.5 transition hover:border-[color:var(--brand)]/50">
-      <div class="flex flex-wrap items-center gap-2 text-[11.5px]">
-        <span class="mono text-[#8fb3ff]">{{ u.id }}</span>
-        <span class="chip {{ chip.get(u.decision.strategy, chip['paragraph_fallback']) }}">{{ u.decision.strategy }}</span>
-        {% if u.context.heading_path %}
-        <span class="truncate text-[color:var(--muted)]">{{ u.context.heading_path | join(" › ") }}</span>
-        {% endif %}
-        {% if u.temporal %}
-        <span class="stat text-emerald-300">{{ "%.0f" | format(u.temporal.start_s) }}s{% if u.temporal.speaker %} · {{ u.temporal.speaker }}{% endif %}</span>
-        {% endif %}
-        <span class="ml-auto flex items-center gap-2">
-          <span class="h-1 w-14 overflow-hidden rounded-full bg-[color:var(--surface-3)]">
-            <span class="block h-full rounded-full bg-[color:var(--brand)]"
-                  style="width: {{ (score * 100) | round | int if score > 0 else 0 }}%"></span>
-          </span>
-          <span class="stat text-[color:var(--faint)]">{{ "%.3f" | format(score) }}</span>
-        </span>
+       class="block surface-card p-4 transition-colors hover:border-[color:var(--accent-blue)]">
+      <div class="flex items-center justify-between text-xs mb-1">
+        <div class="flex items-center gap-2">
+          <span class="mono font-semibold text-[color:var(--accent-blue)]">{{ u.id }}</span>
+          {% if u.context.heading_path %}
+          <span class="text-white font-medium truncate max-w-sm">{{ u.context.heading_path | join(" › ") }}</span>
+          {% endif %}
+        </div>
+        <div class="flex items-center gap-2 font-mono text-[11px] text-[color:var(--text-muted)]">
+          <span>{{ (score * 100) | round | int }}% match</span>
+        </div>
       </div>
-      <p class="mt-1.5 line-clamp-2 text-[12.5px] leading-relaxed text-[color:var(--muted)]">{{ u.content[:240] }}</p>
+      <p class="text-xs text-[color:var(--text-secondary)] line-clamp-2 leading-relaxed">{{ u.content[:240] }}</p>
     </a>
     {% endfor %}
   </div>
   {% else %}
-  <p class="mt-2 text-[12.5px] text-[color:var(--faint)]">No units matched “{{ q }}”.</p>
+  <div class="p-4 text-center text-xs text-[color:var(--text-muted)]">
+    No knowledge units matched “{{ q }}”.
+  </div>
   {% endif %}
 </div>

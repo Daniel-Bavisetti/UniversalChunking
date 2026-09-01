@@ -1,342 +1,538 @@
 {% extends "base.html" %}
 
-{% block nav %}
-<nav class="flex items-center gap-1 text-[13px]">
-  <a href="#upload" class="rounded-full px-3 py-1.5 font-medium text-[color:var(--muted)] hover:text-white">Upload</a>
-  {% if scorecard %}
-  <a href="#scorecard" class="rounded-full px-3 py-1.5 font-medium text-[color:var(--muted)] hover:text-white">Evidence</a>
-  {% endif %}
-  <a href="#spend" class="rounded-full px-3 py-1.5 font-medium text-[color:var(--muted)] hover:text-white">Spend</a>
-  <a href="#jobs" class="rounded-full px-3 py-1.5 font-medium text-[color:var(--muted)] hover:text-white">Jobs</a>
-</nav>
-{% endblock %}
-
 {% block body %}
-<main class="mx-auto max-w-6xl px-6">
+<main class="mx-auto max-w-4xl px-6 py-12 sm:py-16 space-y-20">
 
-  {# ── hero ── #}
-  <section class="grid items-center gap-12 py-16 lg:grid-cols-[1.15fr_1fr] lg:py-24">
-    <div>
-      <span class="chip chip-neutral">
-        <span class="h-1.5 w-1.5 rounded-full bg-[color:var(--ok)]"></span>
-        Understand before you cut
-      </span>
-      <h1 class="display mt-5 text-[2.75rem] font-extrabold leading-[1.05] text-white sm:text-[3.5rem]">
-        Chunks that keep<br>their meaning.
+  <!-- ── 1. Hero Upload Section ────────────────────────────────────────────── -->
+  <section id="workspace" class="space-y-8">
+    
+    <!-- Hero Header -->
+    <div class="text-center space-y-3 max-w-2xl mx-auto">
+      <h1 class="display-title text-white">
+        Create knowledge from any file
       </h1>
-      <p class="mt-5 max-w-xl text-[15px] leading-relaxed text-[color:var(--muted)]">
-        Most pipelines flatten a file to text and split every N tokens — tables lose their headers,
-        captions lose their figures, answers lose their questions. Cleave profiles the input first,
-        maps the relationships inside it, and refuses the cuts that would break them.
+      <p class="text-base sm:text-lg text-[color:var(--text-secondary)] leading-relaxed">
+        Upload documents, images, audio, or video. CLEAVE automatically understands the structure and generates context-aware knowledge units.
       </p>
+    </div>
 
-      <form action="/api/jobs" method="post" enctype="multipart/form-data"
-            id="upload-form" class="mt-8 max-w-xl" novalidate>
-        <div class="card flex flex-col gap-3 p-3 sm:flex-row sm:items-center">
-          <label for="file-input" class="min-w-0 flex-1 cursor-pointer px-2">
-            <input type="file" name="files" required id="file-input" multiple
-                   accept=".pdf,.docx,.pptx,.xlsx,.csv,.md,.txt,.html,.mp3,.m4a,.wav,.flac,.mp4,.mov,.mkv,.webm,.avi,.json"
-                   class="block w-full cursor-pointer text-sm text-[color:var(--muted)]
-                          file:mr-3 file:cursor-pointer file:rounded-full file:border-0
-                          file:bg-[color:var(--surface-3)] file:px-3.5 file:py-2
-                          file:text-[13px] file:font-semibold file:text-white
-                          hover:file:bg-[#24365c]">
-          </label>
-          <button type="submit" id="submit-btn" class="btn shrink-0 justify-center">
-            <span id="btn-label">Cleave it</span>
-            <span class="btn-arrow">
-              <svg viewBox="0 0 16 16" class="h-3 w-3" fill="none" stroke="currentColor"
-                   stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 8h9M8.5 4.5L12 8l-3.5 3.5"/></svg>
-            </span>
-          </button>
+    <!-- Upload Form -->
+    <form action="/api/jobs" method="post" enctype="multipart/form-data" id="upload-form" class="space-y-8" novalidate>
+      
+      <!-- Large Drag & Drop Upload Zone -->
+      <div class="surface-card p-10 sm:p-14 text-center cursor-pointer border-dashed border-2 border-[color:var(--border-subtle)] hover:border-[color:var(--accent-blue)] transition-all bg-[color:var(--bg-surface)]/50" id="drop-zone">
+        
+        <input type="file" name="files" required id="file-input" multiple
+               accept=".pdf,.docx,.pptx,.xlsx,.csv,.md,.txt,.html,.mp3,.m4a,.wav,.flac,.mp4,.mov,.mkv,.webm,.avi,.json"
+               class="hidden">
+
+        <div class="flex flex-col items-center justify-center space-y-4 max-w-md mx-auto">
+          
+          <!-- Upload Icon -->
+          <div class="h-12 w-12 rounded-full bg-white/[0.04] border border-[color:var(--border-subtle)] flex items-center justify-center text-[color:var(--text-secondary)]">
+            <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17 8 12 3 7 8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+          </div>
+
+          <!-- Directives -->
+          <div class="space-y-1">
+            <p class="text-base font-medium text-white">
+              Drop files here, or <span class="text-[color:var(--accent-blue)] hover:underline font-semibold" id="browse-btn">browse files</span>
+            </p>
+            <p class="text-xs text-[color:var(--text-muted)] tracking-wide pt-2">
+              PDF · DOCX · PPTX · XLSX · Images · Audio · Video · JSON
+            </p>
+          </div>
+
         </div>
+      </div>
 
-        <label class="mt-3 flex cursor-pointer items-center gap-2.5 px-2 text-[12.5px] text-[color:var(--muted)]">
-          <span class="relative inline-flex h-5 w-9 shrink-0 items-center">
-            <input type="checkbox" id="use-llm-toggle" checked class="peer sr-only">
-            <span class="pointer-events-none absolute inset-0 rounded-full bg-[color:var(--surface-3)]
-                        transition-colors peer-checked:bg-[color:var(--brand)]"></span>
-            <span class="pointer-events-none absolute left-0.5 h-4 w-4 rounded-full bg-white
-                        transition-transform peer-checked:translate-x-4"></span>
-          </span>
-          <span>
-            Summarize chunks with an LLM
-            <span class="text-[color:var(--faint)]">— situates context-poor chunks; leave off for a fully deterministic, free run</span>
-          </span>
+      <!-- Selected Files Queue (Progressively Revealed) -->
+      <div id="file-queue-container" class="surface-elevated p-4 hidden space-y-3">
+        <div class="flex items-center justify-between text-xs pb-1 border-b border-[color:var(--border-subtle)]">
+          <span class="font-medium text-[color:var(--text-secondary)] uppercase tracking-wider text-[11px]" id="queue-count">Selected Files</span>
+          <button type="button" id="clear-queue-btn" class="text-[color:var(--text-muted)] hover:text-rose-400 transition-colors">Clear</button>
+        </div>
+        <ul id="file-queue-list" class="space-y-2 max-h-48 overflow-y-auto pr-1">
+          <!-- Populated dynamically via JS -->
+        </ul>
+      </div>
+
+      <!-- ── 2. Processing Mode (3 Selectable Cards) ───────────────────────── -->
+      <div class="space-y-3 pt-2">
+        <label class="text-xs font-semibold uppercase tracking-wider text-[color:var(--text-muted)] block">
+          Processing Mode
         </label>
+        
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+          
+          <!-- Fast Mode -->
+          <div class="mode-card surface-card p-4 cursor-pointer relative space-y-1.5 hover:border-[color:var(--border-strong)]" data-mode="fast">
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-semibold text-white">⚡ Fast</span>
+            </div>
+            <p class="text-xs text-[color:var(--text-secondary)] leading-relaxed">
+              Optimized for speed and deterministic structure extraction.
+            </p>
+          </div>
+
+          <!-- Adaptive Mode (Recommended) -->
+          <div class="mode-card surface-card p-4 cursor-pointer relative space-y-1.5 border-[color:var(--accent-blue)] bg-[color:var(--accent-blue-soft)]/20" data-mode="adaptive">
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-semibold text-white">✨ Adaptive</span>
+              <span class="text-[10px] font-semibold text-[color:var(--accent-blue)] uppercase tracking-wider">Recommended</span>
+            </div>
+            <p class="text-xs text-[color:var(--text-secondary)] leading-relaxed">
+              Automatically selects the best extraction and chunking strategy.
+            </p>
+          </div>
+
+          <!-- Deep Analysis Mode -->
+          <div class="mode-card surface-card p-4 cursor-pointer relative space-y-1.5 hover:border-[color:var(--border-strong)]" data-mode="deep">
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-semibold text-white">🔬 Deep Analysis</span>
+            </div>
+            <p class="text-xs text-[color:var(--text-secondary)] leading-relaxed">
+              Maximum contextual understanding and relationship extraction.
+            </p>
+          </div>
+
+        </div>
+        <input type="hidden" name="mode" id="mode-input" value="adaptive">
         <input type="hidden" name="use_llm" id="use-llm-field" value="true">
-      </form>
-
-      <p class="mt-3 max-w-xl px-2 text-[12px] leading-relaxed text-[color:var(--faint)]">
-        Select several files at once — a PDF, a spreadsheet, a call recording, a video — and they land
-        as one combined job: each is routed on its own merits, then searched together.
-      </p>
-
-      <div class="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-[12px] text-[color:var(--faint)]">
-        {% for tone, label, formats in [
-          ("#4d82ff", "Documents",    "PDF · DOCX · PPTX · MD"),
-          ("#2dd4bf", "Spreadsheets", "CSV · XLSX"),
-          ("#34d399", "Audio",        "MP3 · M4A · WAV"),
-          ("#f59e0b", "Video",        "MP4 · MOV · MKV · WEBM"),
-          ("#c084fc", "Contract",     "JSON")] %}
-        <span class="flex items-center gap-1.5">
-          <span class="h-1.5 w-1.5 rounded-full" style="background:{{ tone }}"></span>
-          <span class="font-medium text-[color:var(--muted)]">{{ label }}</span>
-          <span>{{ formats }}</span>
-        </span>
-        {% endfor %}
       </div>
-    </div>
 
-    {# how it works #}
-    <div class="card p-6 lg:p-7">
-      <div class="label">How a file moves through</div>
-      <ol class="mt-4 space-y-3.5">
-        {% for n, title, detail in [
-          ("1", "Understand", "Structure is extracted — headings, tables, captions, speakers — not just text."),
-          ("2", "Relate",     "A context graph links captions to figures and references to their targets."),
-          ("3", "Route",      "Cheap signals pick the strategy: structural, tabular, temporal or semantic."),
-          ("4", "Cut safely", "Boundaries that would sever a relationship are vetoed and recorded."),
-          ("5", "Enrich",     "Only chunks that structure cannot explain are sent to a model.")] %}
-        <li class="flex gap-3.5">
-          <span class="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full
-                       bg-[color:var(--brand-soft)] text-[11px] font-bold text-[#8fb3ff]">{{ n }}</span>
-          <div class="min-w-0">
-            <div class="text-[13px] font-semibold text-white">{{ title }}</div>
-            <div class="mt-0.5 text-[12.5px] leading-relaxed text-[color:var(--muted)]">{{ detail }}</div>
-          </div>
-        </li>
-        {% endfor %}
-      </ol>
-    </div>
-  </section>
+      <!-- ── 3. Collapsible Advanced Options ───────────────────────────────── -->
+      <details class="group surface-card p-4 text-xs">
+        <summary class="cursor-pointer font-medium text-[color:var(--text-secondary)] hover:text-white flex items-center justify-between list-none">
+          <span class="flex items-center gap-2">
+            <svg viewBox="0 0 16 16" class="h-3.5 w-3.5 text-[color:var(--text-muted)] transition-transform group-open:rotate-90" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M6 3l5 5-5 5"/>
+            </svg>
+            Advanced processing options
+          </span>
+          <span class="text-[11px] text-[color:var(--text-muted)] font-mono">Customize Pipeline</span>
+        </summary>
+        
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 mt-3 border-t border-[color:var(--border-subtle)] text-[color:var(--text-secondary)]">
+          <label class="flex items-center gap-2.5 cursor-pointer">
+            <input type="checkbox" checked class="rounded border-white/20 bg-white/5 text-blue-500 focus:ring-0">
+            <span>Extract tables & preserve column alignments</span>
+          </label>
+          <label class="flex items-center gap-2.5 cursor-pointer">
+            <input type="checkbox" checked class="rounded border-white/20 bg-white/5 text-blue-500 focus:ring-0">
+            <span>Detect hierarchical headings (H1–H6)</span>
+          </label>
+          <label class="flex items-center gap-2.5 cursor-pointer">
+            <input type="checkbox" checked class="rounded border-white/20 bg-white/5 text-blue-500 focus:ring-0">
+            <span>Preserve figure-to-caption relationships</span>
+          </label>
+          <label class="flex items-center gap-2.5 cursor-pointer">
+            <input type="checkbox" id="situating-context-toggle" checked class="rounded border-white/20 bg-white/5 text-blue-500 focus:ring-0">
+            <span>Generate situating context summaries</span>
+          </label>
+        </div>
+      </details>
 
-  {# ── scorecard ── #}
-  {% if scorecard %}
-  {% set delta = (scorecard.cleave.cps_pct or 0) - (scorecard.fixed.cps_pct or 0) %}
-  <section id="scorecard" class="scroll-mt-24 pb-6">
-    <div class="mb-5 flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <div class="label">Evidence</div>
-        <h2 class="mt-1.5 text-2xl font-bold text-white">Context Preservation Scorecard</h2>
-        <p class="mt-1.5 max-w-2xl text-[13.5px] leading-relaxed text-[color:var(--muted)]">
-          How much of what belongs together survived the cut, measured on
-          {{ scorecard.documents | join(" and ") }} against a {{ scorecard.baseline }} baseline.
+      <!-- ── 4. High-Impact Primary Action ─────────────────────────────────── -->
+      <div class="text-center pt-2 space-y-3">
+        <button type="submit" id="submit-btn" class="btn-primary-action w-full sm:w-auto px-10 py-3.5 text-base">
+          <span id="btn-label">Analyze & Generate Knowledge</span>
+          <svg viewBox="0 0 16 16" class="h-4 w-4 ml-1" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 8h10M8.5 3.5L13 8l-4.5 4.5"/>
+          </svg>
+        </button>
+        <p class="text-xs text-[color:var(--text-muted)]">
+          CLEAVE will automatically select extraction and chunking strategies based on your content.
         </p>
       </div>
-      <span class="chip chip-neutral">measured · data/scorecard.json</span>
-    </div>
 
-    <div class="grid gap-4 sm:grid-cols-2">
-      {% for arm in ["fixed", "cleave"] %}
-      {% set s = scorecard[arm] %}
-      {% set is_c = arm == "cleave" %}
-      <div class="card p-6 {{ 'border-[color:var(--brand)]/45' if is_c }}"
-           {% if is_c %}style="background:linear-gradient(180deg,rgba(47,107,255,.10),transparent 62%),var(--surface)"{% endif %}>
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <div class="text-[13px] font-semibold {{ 'text-[#8fb3ff]' if is_c else 'text-[color:var(--muted)]' }}">
-              {{ "Cleave" if is_c else "Fixed-size baseline" }}
-            </div>
-            <div class="mt-0.5 text-[11.5px] text-[color:var(--faint)]">
-              {{ "structure-aware, relationship-constrained" if is_c else "split every 512 tokens" }}
-            </div>
-          </div>
-          <div class="stat text-3xl font-extrabold {{ 'text-white' if is_c else 'text-[color:var(--muted)]' }}">
-            {{ s.cps_pct }}%
-          </div>
-        </div>
-        <div class="mt-5 space-y-3">
-          {% for m in s.metrics %}
-          {% set pct = (100 * m.preserved / m.total) if m.total else 0 %}
-          <div>
-            <div class="flex items-baseline justify-between text-[12px]">
-              <span class="text-[color:var(--muted)]">{{ m.name }}</span>
-              <span class="stat text-[color:var(--faint)]">{{ m.preserved }}/{{ m.total }}</span>
-            </div>
-            <div class="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[color:var(--surface-3)]">
-              <div class="h-full rounded-full transition-all duration-700"
-                   style="width:{{ pct }}%;background:{{ '#2f6bff' if is_c else '#3d4a68' }}"></div>
-            </div>
-          </div>
-          {% endfor %}
-        </div>
-      </div>
-      {% endfor %}
-    </div>
+    </form>
 
-    {% if delta > 0 %}
-    <p class="mt-4 text-[13px] leading-relaxed text-[color:var(--muted)]">
-      <span class="font-semibold text-white">+{{ "%.1f" | format(delta) }} points.</span>
-      The baseline loses captions, table headers and section context because it cannot see them.
-      Cleave can, and refuses to cut through them.
-    </p>
-    {% endif %}
-
-    {% if scorecard.retrieval_benchmark %}
-    {% set rb = scorecard.retrieval_benchmark %}
-    <div class="card mt-4 p-5 border-teal-400/30" style="background:linear-gradient(180deg,rgba(45,212,191,.06),transparent 65%),var(--surface)">
-      <div class="flex flex-wrap items-baseline justify-between gap-2">
-        <span class="label !text-teal-300">Empirical RAG Retrieval Benchmark</span>
-        <span class="text-[11.5px] text-[color:var(--muted)]">{{ rb.queries_evaluated }} QA queries evaluated across tables, captions & hierarchy</span>
-      </div>
-      <div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4 text-center">
-        <div class="card-quiet p-3">
-          <div class="stat text-xl font-bold text-white">{{ (rb.cleave.recall_at_5 * 100)|round|int }}%</div>
-          <div class="label mt-1 !text-[9.5px]">Cleave Recall@5</div>
-        </div>
-        <div class="card-quiet p-3">
-          <div class="stat text-xl font-bold text-[color:var(--muted)]">{{ (rb.fixed.recall_at_5 * 100)|round|int }}%</div>
-          <div class="label mt-1 !text-[9.5px]">Fixed Recall@5</div>
-        </div>
-        <div class="card-quiet p-3">
-          <div class="stat text-xl font-bold text-teal-300">{{ rb.cleave.mrr }}</div>
-          <div class="label mt-1 !text-[9.5px]">Cleave MRR</div>
-        </div>
-        <div class="card-quiet p-3">
-          <div class="stat text-xl font-bold text-emerald-400">+{{ rb.mrr_lift_pct }}%</div>
-          <div class="label mt-1 !text-[9.5px]">Retrieval Lift (MRR)</div>
-        </div>
-      </div>
-    </div>
-    {% endif %}
   </section>
-  {% endif %}
 
-  {# ── spend ── #}
-  <section id="spend" class="scroll-mt-24 pb-6 pt-4">
-    <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+  <!-- ── 5. Spend / Where the tokens go Section (Requested in Image-2) ────── -->
+  <section id="spend" class="pt-8 border-t border-[color:var(--border-subtle)] space-y-6">
+    <div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
       <div>
-        <div class="label">Spend</div>
-        <h2 class="mt-1.5 text-2xl font-bold text-white">Where the tokens go</h2>
-        <p class="mt-1.5 max-w-2xl text-[13.5px] leading-relaxed text-[color:var(--muted)]">
-          Every model call is metered by model, tokens in and out, and cost. Local models are
-          recorded the same way at zero, so the two paths compare in one table.
+        <div class="text-[11px] font-semibold uppercase tracking-wider text-[color:var(--accent-blue)]">Spend</div>
+        <h2 class="section-title text-white mt-0.5">Where the tokens go</h2>
+        <p class="text-xs text-[color:var(--text-secondary)] mt-1 max-w-2xl leading-relaxed">
+          Every model call is metered by model, tokens in and out, and cost. Local models are recorded the same way at zero, so the two paths compare in one table.
         </p>
       </div>
-      <a href="/api/usage" target="_blank" rel="noopener" class="btn-ghost mono !text-[11px]">api/usage</a>
+      <a href="/api/usage" target="_blank" rel="noopener" class="btn-subtle mono !text-xs self-start sm:self-auto">
+        api/usage
+      </a>
     </div>
 
-    {# providers #}
-    <div class="mb-3 grid gap-2.5 sm:grid-cols-2">
+    <!-- Active Providers Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
       {% for p in providers %}
-      <div class="card flex items-center justify-between gap-3 px-4 py-3
-                  {{ 'border-[color:var(--brand)]/45' if p.active }}">
+      <div class="surface-card p-3.5 flex items-center justify-between gap-3 {{ 'border-[color:var(--accent-blue)] bg-[color:var(--accent-blue-soft)]/10' if p.active else '' }}">
         <div class="min-w-0">
           <div class="flex items-center gap-2">
-            <span class="h-1.5 w-1.5 shrink-0 rounded-full"
-                  style="background:{{ '#34d399' if p.available else '#3d4a68' }}"></span>
-            <span class="text-[13px] font-semibold text-white">{{ p.label }}</span>
+            <span class="h-1.5 w-1.5 rounded-full {{ 'bg-emerald-400' if p.available else 'bg-slate-600' }}"></span>
+            <span class="text-xs font-semibold text-white truncate">{{ p.label }}</span>
             {% if p.active %}
-            <span class="chip border-[color:var(--brand)]/40 bg-[color:var(--brand-soft)] text-[#8fb3ff]">active</span>
+            <span class="text-[10px] px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-400 font-semibold">active</span>
             {% endif %}
           </div>
-          <div class="mono mt-0.5 truncate text-[11px] text-[color:var(--faint)]">{{ p.model }}</div>
+          <div class="mono text-[11px] text-[color:var(--text-muted)] truncate mt-0.5">{{ p.model }}</div>
         </div>
-        <span class="chip {{ 'border-teal-400/30 bg-teal-500/10 text-teal-300' if p.cost == 'free'
-                             else 'chip-neutral' }}">{{ p.cost }}</span>
+        <span class="text-[10px] font-mono px-2 py-0.5 rounded {{ 'bg-teal-500/10 text-teal-300 border border-teal-500/20' if p.cost == 'free' else 'bg-white/[0.04] text-[color:var(--text-secondary)] border border-white/10' }}">
+          {{ p.cost }}
+        </span>
       </div>
       {% endfor %}
     </div>
 
+    <!-- Cumulative Metrics & Breakdown -->
     {% if usage and usage.by_model %}
-    <div class="card p-5">
-      <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {% for label, value, tone in [
-          ("lifetime cost", "$" ~ "%.4f" | format(usage.totals.cost_usd), "text-[#8fb3ff]"),
-          ("model calls",   usage.totals.calls,                            "text-white"),
-          ("tokens in",     "{:,}".format(usage.totals.in_tokens),         "text-white"),
-          ("free / paid",   usage.totals.local_calls ~ " / " ~ usage.totals.paid_calls, "text-teal-300"),
-        ] %}
-        <div class="card-quiet px-3 py-3 text-center">
-          <div class="stat text-[1.15rem] font-bold {{ tone }}">{{ value }}</div>
-          <div class="label mt-1 !text-[9.5px]">{{ label }}</div>
+    <div class="surface-card p-6 space-y-6">
+      
+      <!-- 4-Stat Row -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+        <div class="space-y-1">
+          <div class="stat text-2xl font-bold text-white">${{ "%.4f" | format(usage.totals.cost_usd) }}</div>
+          <div class="text-[11px] text-[color:var(--text-muted)] uppercase tracking-wider">Lifetime Cost</div>
         </div>
-        {% endfor %}
+        <div class="space-y-1">
+          <div class="stat text-2xl font-bold text-white">{{ usage.totals.calls }}</div>
+          <div class="text-[11px] text-[color:var(--text-muted)] uppercase tracking-wider">Model Calls</div>
+        </div>
+        <div class="space-y-1">
+          <div class="stat text-2xl font-bold text-white">{{ "{:,}".format(usage.totals.in_tokens) }}</div>
+          <div class="text-[11px] text-[color:var(--text-muted)] uppercase tracking-wider">Tokens In</div>
+        </div>
+        <div class="space-y-1">
+          <div class="stat text-2xl font-bold text-teal-400">{{ usage.totals.local_calls }} / {{ usage.totals.paid_calls }}</div>
+          <div class="text-[11px] text-[color:var(--text-muted)] uppercase tracking-wider">Free / Paid</div>
+        </div>
       </div>
 
-      <div class="mt-4 space-y-2.5">
+      <!-- Model Breakdown Bars -->
+      <div class="border-t border-[color:var(--border-subtle)] pt-4 space-y-3">
         {% set maxc = usage.by_model | map(attribute='cost_usd') | max %}
         {% for m in usage.by_model %}
-        <div>
-          <div class="flex items-baseline justify-between gap-3 text-[12px]">
-            <span class="mono truncate text-[color:var(--text)]">{{ m.model }}
-              {% if m.local %}<span class="ml-1 text-teal-300">local</span>{% endif %}</span>
-            <span class="stat shrink-0 text-[color:var(--muted)]">
-              {{ m.calls }} calls · {{ "{:,}".format(m.in_tokens) }} in ·
-              <span class="{{ 'text-teal-300' if m.local else 'text-[#8fb3ff]' }} font-semibold">
-                {{ "free" if m.local else "$%.4f" | format(m.cost_usd) }}</span>
+        <div class="space-y-1">
+          <div class="flex items-center justify-between text-xs font-mono">
+            <span class="text-white flex items-center gap-1.5">
+              {{ m.model }}
+              {% if m.local %}<span class="text-[10px] text-teal-400 font-semibold bg-teal-500/10 px-1.5 py-0.2 rounded">local</span>{% endif %}
+            </span>
+            <span class="text-[color:var(--text-muted)]">
+              {{ m.calls }} calls · {{ "{:,}".format(m.in_tokens) }} in · 
+              <span class="{{ 'text-teal-400' if m.local else 'text-blue-400' }} font-semibold">
+                {{ "free" if m.local else "$%.4f" | format(m.cost_usd) }}
+              </span>
             </span>
           </div>
-          <div class="mt-1 h-1 overflow-hidden rounded-full bg-[color:var(--surface-3)]">
-            <div class="h-full rounded-full"
-                 style="width:{{ (100 * m.cost_usd / maxc) if maxc else 3 }}%;
-                        background:{{ '#2dd4bf' if m.local else '#2f6bff' }}"></div>
+          <div class="h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+            <div class="h-full rounded-full transition-all duration-500 {{ 'bg-teal-400' if m.local else 'bg-[color:var(--accent-blue)]' }}"
+                 style="width: {{ (100 * m.cost_usd / maxc) if maxc else 5 }}%"></div>
           </div>
         </div>
         {% endfor %}
       </div>
-    </div>
-    {% else %}
-    <div class="card px-6 py-8 text-center">
-      <p class="text-[13.5px] text-[color:var(--muted)]">No model calls billed yet.</p>
-      <p class="mx-auto mt-1.5 max-w-lg text-[12.5px] leading-relaxed text-[color:var(--faint)]">
-        Enrichment only fires on chunks that structure cannot explain — process a file and the
-        breakdown appears here.
-      </p>
+
     </div>
     {% endif %}
+
   </section>
 
-  {# ── jobs ── #}
-  <section id="jobs" class="scroll-mt-24 pb-20 pt-6">
-    <div class="flex items-center justify-between mb-3">
-      <div class="label">All jobs / chunks</div>
+  <!-- ── 6. Evidence & Context Preservation Benchmark ──────────────────────── -->
+  {% if scorecard %}
+  {% set delta = (scorecard.cleave.cps_pct or 0) - (scorecard.fixed.cps_pct or 0) %}
+  <section id="evidence" class="pt-8 border-t border-[color:var(--border-subtle)] space-y-6">
+    <div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
+      <div>
+        <h2 class="section-title text-white">Context Preservation Evidence</h2>
+        <p class="text-xs text-[color:var(--text-secondary)] mt-1">
+          Measured on benchmark documents against a standard 512-token fixed baseline.
+        </p>
+      </div>
+      <span class="text-xs font-mono text-[color:var(--text-muted)]">data/scorecard.json</span>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div class="surface-card p-5 space-y-2 border-[color:var(--accent-blue)] bg-[color:var(--accent-blue-soft)]/10">
+        <div class="flex items-baseline justify-between">
+          <span class="text-sm font-semibold text-white">CLEAVE Structure-Aware</span>
+          <span class="stat text-2xl font-bold text-white">{{ scorecard.cleave.cps_pct }}%</span>
+        </div>
+        <p class="text-xs text-[color:var(--text-secondary)]">
+          Zero broken tables, captions anchored to figures, headings preserved.
+        </p>
+      </div>
+
+      <div class="surface-card p-5 space-y-2 opacity-70">
+        <div class="flex items-baseline justify-between">
+          <span class="text-sm font-semibold text-[color:var(--text-secondary)]">Fixed-Size Baseline</span>
+          <span class="stat text-2xl font-bold text-[color:var(--text-muted)]">{{ scorecard.fixed.cps_pct }}%</span>
+        </div>
+        <p class="text-xs text-[color:var(--text-muted)]">
+          Blind cuts every 512 tokens isolate captions and sever table rows.
+        </p>
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- ── 7. Processing Jobs History (Image-1: First 5 by default + Show More) ── -->
+  <section id="jobs" class="pt-8 border-t border-[color:var(--border-subtle)] space-y-4">
+    <div class="flex items-center justify-between">
+      <h2 class="section-title text-white">Recent Processing Jobs</h2>
       {% if jobs %}
-      <span class="text-[12px] text-[color:var(--muted)] font-mono">{{ jobs|length }} total</span>
+      <span class="text-xs text-[color:var(--text-muted)] font-mono">{{ jobs|length }} jobs</span>
       {% endif %}
     </div>
+
     {% if jobs %}
-    <ul class="grid gap-2 sm:grid-cols-2">
-      {% for j in jobs %}
-      <li>
-        <a href="/jobs/{{ j.id }}"
-           class="card flex items-center justify-between gap-3 px-4 py-3.5 transition
-                  hover:border-[color:var(--line-strong)] hover:bg-[color:var(--surface-2)]">
-          <span class="min-w-0 truncate text-[13.5px] font-medium text-[color:var(--text)]">{{ j.filename }}</span>
-          <span class="shrink-0 chip
-                {{ 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' if j.status=='done'
-                   else 'border-rose-500/30 bg-rose-500/10 text-rose-300' if j.status=='error'
-                   else 'border-amber-500/30 bg-amber-500/10 text-amber-300' }}">{{ j.status }}</span>
-        </a>
-      </li>
+    <div class="divide-y divide-[color:var(--border-subtle)]" id="jobs-list-container">
+      
+      <!-- First 5 Jobs Always Visible -->
+      {% for j in jobs[:5] %}
+      <div class="py-3.5 flex items-center justify-between gap-4 hover:bg-white/[0.02] px-2 rounded-[var(--radius-sm)] transition-colors">
+        <div class="min-w-0 flex items-center gap-3">
+          <div class="h-2 w-2 rounded-full {{ 'bg-emerald-400' if j.status=='done' else 'bg-rose-400' if j.status=='error' else 'bg-amber-400' }}"></div>
+          <span class="text-sm font-medium text-white truncate max-w-md">{{ j.filename }}</span>
+          <span class="mono text-xs text-[color:var(--text-muted)] hidden sm:inline">{{ j.id }}</span>
+        </div>
+        <div class="flex items-center gap-3 shrink-0">
+          <span class="text-xs font-mono {{ 'text-emerald-400' if j.status=='done' else 'text-rose-400' if j.status=='error' else 'text-amber-400' }}">
+            {{ j.status }}
+          </span>
+          <a href="/jobs/{{ j.id }}" class="btn-subtle !py-1 !px-2.5 text-xs">
+            Open →
+          </a>
+        </div>
+      </div>
       {% endfor %}
-    </ul>
+
+      <!-- Remaining Jobs (Revealed on 'Show More') -->
+      {% if jobs|length > 5 %}
+      <div id="extra-jobs" class="hidden divide-y divide-[color:var(--border-subtle)]">
+        {% for j in jobs[5:] %}
+        <div class="py-3.5 flex items-center justify-between gap-4 hover:bg-white/[0.02] px-2 rounded-[var(--radius-sm)] transition-colors">
+          <div class="min-w-0 flex items-center gap-3">
+            <div class="h-2 w-2 rounded-full {{ 'bg-emerald-400' if j.status=='done' else 'bg-rose-400' if j.status=='error' else 'bg-amber-400' }}"></div>
+            <span class="text-sm font-medium text-white truncate max-w-md">{{ j.filename }}</span>
+            <span class="mono text-xs text-[color:var(--text-muted)] hidden sm:inline">{{ j.id }}</span>
+          </div>
+          <div class="flex items-center gap-3 shrink-0">
+            <span class="text-xs font-mono {{ 'text-emerald-400' if j.status=='done' else 'text-rose-400' if j.status=='error' else 'text-amber-400' }}">
+              {{ j.status }}
+            </span>
+            <a href="/jobs/{{ j.id }}" class="btn-subtle !py-1 !px-2.5 text-xs">
+              Open →
+            </a>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <!-- Show More / Less Toggle Button -->
+      <div class="pt-3 text-center">
+        <button type="button" id="toggle-jobs-btn" class="btn-subtle text-xs font-medium">
+          <span>Show {{ jobs|length - 5 }} more jobs</span>
+          <svg viewBox="0 0 16 16" class="h-3.5 w-3.5 ml-1 transition-transform" id="toggle-jobs-icon" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 6l4 4 4-4"/>
+          </svg>
+        </button>
+      </div>
+      {% endif %}
+
+    </div>
     {% else %}
-    <div class="card px-6 py-12 text-center">
-      <p class="text-[14px] text-[color:var(--muted)]">Nothing processed yet.</p>
-      <p class="mx-auto mt-1.5 max-w-md text-[12.5px] leading-relaxed text-[color:var(--faint)]">
-        A PDF with tables shows the boundary vetoes best. A CSV shows the cost story best —
-        480 rows, one model call.
-      </p>
+    <div class="p-8 text-center text-xs text-[color:var(--text-muted)]">
+      No processing jobs recorded yet.
     </div>
     {% endif %}
   </section>
+
 </main>
 
+<!-- ── Client Script: File Queue, Mode Cards, & Jobs Toggle ──────────────── -->
 <script>
-  document.getElementById('use-llm-toggle').addEventListener('change', (e) => {
-    document.getElementById('use-llm-field').value = e.target.checked ? 'true' : 'false';
+(() => {
+  // ── Mode Card Selection ──
+  const modeCards = document.querySelectorAll('.mode-card');
+  const modeInput = document.getElementById('mode-input');
+  const situatingToggle = document.getElementById('situating-context-toggle');
+  const useLlmField = document.getElementById('use-llm-field');
+
+  modeCards.forEach(card => {
+    card.addEventListener('click', () => {
+      modeCards.forEach(c => {
+        c.className = 'mode-card surface-card p-4 cursor-pointer relative space-y-1.5 hover:border-[color:var(--border-strong)]';
+      });
+      card.className = 'mode-card surface-card p-4 cursor-pointer relative space-y-1.5 border-[color:var(--accent-blue)] bg-[color:var(--accent-blue-soft)]/20';
+      const m = card.dataset.mode;
+      if (modeInput) modeInput.value = m;
+      if (m === 'fast' && situatingToggle && useLlmField) {
+        situatingToggle.checked = false;
+        useLlmField.value = 'false';
+      } else if (situatingToggle && useLlmField) {
+        situatingToggle.checked = true;
+        useLlmField.value = 'true';
+      }
+    });
   });
 
-  document.getElementById('upload-form').addEventListener('submit', () => {
-    // The page navigates away on success, so this state only ever shows during
-    // the POST — long enough to stop a second click on a big file.
-    const n = document.getElementById('file-input').files.length;
-    if (!n) return;
-    document.getElementById('submit-btn').disabled = true;
-    document.getElementById('btn-label').textContent = n > 1 ? `Uploading ${n} files…` : 'Uploading…';
-  });
+  if (situatingToggle && useLlmField) {
+    situatingToggle.addEventListener('change', (e) => {
+      useLlmField.value = e.target.checked ? 'true' : 'false';
+    });
+  }
+
+  // ── Show More / Less Jobs Toggle ──
+  const toggleJobsBtn = document.getElementById('toggle-jobs-btn');
+  const extraJobs = document.getElementById('extra-jobs');
+  const toggleJobsIcon = document.getElementById('toggle-jobs-icon');
+  
+  if (toggleJobsBtn && extraJobs) {
+    const remainingCount = {{ (jobs|length - 5) if jobs and jobs|length > 5 else 0 }};
+    let isExpanded = false;
+    
+    toggleJobsBtn.addEventListener('click', () => {
+      isExpanded = !isExpanded;
+      if (isExpanded) {
+        extraJobs.classList.remove('hidden');
+        toggleJobsBtn.querySelector('span').textContent = 'Show fewer jobs';
+        if (toggleJobsIcon) toggleJobsIcon.classList.add('rotate-180');
+      } else {
+        extraJobs.classList.add('hidden');
+        toggleJobsBtn.querySelector('span').textContent = `Show ${remainingCount} more jobs`;
+        if (toggleJobsIcon) toggleJobsIcon.classList.remove('rotate-180');
+      }
+    });
+  }
+
+  // ── File Queue & Drag/Drop ──
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+  const browseBtn = document.getElementById('browse-btn');
+  const queueContainer = document.getElementById('file-queue-container');
+  const queueList = document.getElementById('file-queue-list');
+  const queueCount = document.getElementById('queue-count');
+  const clearQueueBtn = document.getElementById('clear-queue-btn');
+  const uploadForm = document.getElementById('upload-form');
+  const submitBtn = document.getElementById('submit-btn');
+  const btnLabel = document.getElementById('btn-label');
+
+  let selectedFiles = [];
+
+  if (browseBtn && fileInput) {
+    browseBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      fileInput.click();
+    });
+  }
+  if (dropZone && fileInput) {
+    dropZone.addEventListener('click', () => fileInput.click());
+  }
+
+  function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
+
+  function renderQueue() {
+    if (!queueList || !queueContainer || !queueCount) return;
+    queueList.innerHTML = '';
+    if (selectedFiles.length === 0) {
+      queueContainer.classList.add('hidden');
+      return;
+    }
+    queueContainer.classList.remove('hidden');
+    queueCount.textContent = `${selectedFiles.length} File${selectedFiles.length > 1 ? 's' : ''} Ready`;
+
+    selectedFiles.forEach((file, idx) => {
+      const li = document.createElement('li');
+      li.className = 'flex items-center justify-between text-xs py-1.5 px-2 rounded bg-white/[0.03]';
+      li.innerHTML = `
+        <div class="flex items-center gap-2.5 min-w-0">
+          <span class="font-medium text-white truncate max-w-xs">${file.name}</span>
+          <span class="mono text-[11px] text-[color:var(--text-muted)]">${formatBytes(file.size)}</span>
+        </div>
+        <button type="button" class="remove-file text-[color:var(--text-muted)] hover:text-rose-400" data-index="${idx}">✕</button>
+      `;
+      queueList.appendChild(li);
+    });
+
+    document.querySelectorAll('.remove-file').forEach(b => {
+      b.addEventListener('click', (e) => {
+        const i = parseInt(e.target.dataset.index, 10);
+        selectedFiles.splice(i, 1);
+        updateDataTransfer();
+        renderQueue();
+      });
+    });
+  }
+
+  function updateDataTransfer() {
+    const dt = new DataTransfer();
+    selectedFiles.forEach(f => dt.items.add(f));
+    fileInput.files = dt.files;
+  }
+
+  if (fileInput) {
+    fileInput.addEventListener('change', () => {
+      selectedFiles = Array.from(fileInput.files);
+      renderQueue();
+    });
+  }
+
+  if (clearQueueBtn) {
+    clearQueueBtn.addEventListener('click', () => {
+      selectedFiles = [];
+      updateDataTransfer();
+      renderQueue();
+    });
+  }
+
+  if (dropZone) {
+    ['dragenter', 'dragover'].forEach(name => {
+      dropZone.addEventListener(name, (e) => {
+        e.preventDefault();
+        dropZone.classList.add('border-[color:var(--accent-blue)]');
+      });
+    });
+    ['dragleave', 'drop'].forEach(name => {
+      dropZone.addEventListener(name, (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-[color:var(--accent-blue)]');
+      });
+    });
+    dropZone.addEventListener('drop', (e) => {
+      if (e.dataTransfer.files && e.dataTransfer.files.length) {
+        selectedFiles = Array.from(e.dataTransfer.files);
+        updateDataTransfer();
+        renderQueue();
+      }
+    });
+  }
+
+  if (uploadForm) {
+    uploadForm.addEventListener('submit', (e) => {
+      const n = fileInput.files.length;
+      if (!n) {
+        e.preventDefault();
+        alert('Please select or drop at least one file to process.');
+        return;
+      }
+      submitBtn.disabled = true;
+      btnLabel.textContent = n > 1 ? `Analyzing ${n} Files…` : 'Analyzing & Generating Knowledge…';
+    });
+  }
+
+})();
 </script>
 {% endblock %}

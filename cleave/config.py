@@ -75,6 +75,17 @@ class Settings:
     tabular_target_tokens: int = 900
     tabular_max_tokens: int = 1200
     completeness_threshold: float = 0.7
+    # Video pipeline settings:
+    #: When True, synthetic fallback is allowed even without CLEAVE_OFFLINE_FALLBACK.
+    #: Set CLEAVE_EVALUATION_MODE=1 in test/evaluation environments only.
+    evaluation_mode: bool = False
+    #: When False, synthetic fallback raises VideoWorkerUnavailable in production.
+    #: Set CLEAVE_ALLOW_SYNTHETIC_FALLBACK=0 to enforce real worker requirement.
+    allow_synthetic_fallback: bool = True
+    #: Boundary signal weight for a shot-only camera cut (vs 0.85 for a scene change).
+    weight_shot_change: float = 0.35
+    #: Minimum boundary score for speaker change to force a multimodal event split.
+    speaker_boundary_threshold: float = 0.55
 
 
 def _load_dotenv_once() -> None:
@@ -173,6 +184,10 @@ def settings() -> Settings:
         tabular_target_tokens=_int_env("CLEAVE_TABULAR_TARGET_TOKENS", 900, minimum=100),
         tabular_max_tokens=_int_env("CLEAVE_TABULAR_MAX_TOKENS", 1200, minimum=150),
         completeness_threshold=_float_env("CLEAVE_COMPLETENESS_THRESHOLD", 0.7, minimum=0.0),
+        evaluation_mode=_str_env("CLEAVE_EVALUATION_MODE", "0").lower() in ("1", "true", "yes"),
+        allow_synthetic_fallback=_str_env("CLEAVE_ALLOW_SYNTHETIC_FALLBACK", "1").lower() not in ("0", "false", "no"),
+        weight_shot_change=_float_env("CLEAVE_WEIGHT_SHOT_CHANGE", 0.35),
+        speaker_boundary_threshold=_float_env("CLEAVE_SPEAKER_BOUNDARY_THRESHOLD", 0.55),
     )
 
 

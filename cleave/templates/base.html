@@ -1,160 +1,261 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}Cleave{% endblock %}</title>
+<title>{% block title %}CLEAVE — AI Universal Chunking & Knowledge Platform{% endblock %}</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="/static/htmx.min.js"></script>
 <style>
-  /* ── design tokens ──────────────────────────────────────────────────────
-     Deep navy rather than neutral black: the blue cast keeps the accent and
-     the surfaces in one family, which is what makes a dark UI read as
-     designed instead of merely dark. Strategy hues are semantic — each
-     chunking strategy keeps its colour everywhere it appears. */
+  /* ── CLEAVE Minimalist Design System (Linear / Vercel Aesthetic) ───────── */
   :root {
-    --bg:          #060c1a;
-    --bg-soft:     #0a1224;
-    --surface:     #0d1628;
-    --surface-2:   #131e35;
-    --surface-3:   #1a2743;
-    --line:        rgba(148, 178, 255, .10);
-    --line-strong: rgba(148, 178, 255, .18);
+    --bg-page:           #0B1020;
+    --bg-surface:        #111827;
+    --bg-surface-hover:  #162032;
+    --bg-elevated:       #151E2E;
+    
+    --border-subtle:     rgba(255, 255, 255, 0.07);
+    --border-hover:      rgba(255, 255, 255, 0.14);
+    --border-strong:     rgba(255, 255, 255, 0.22);
+    
+    --text-primary:      #F8FAFC;
+    --text-secondary:    #94A3B8;
+    --text-muted:        #64748B;
+    --text-faint:        #475569;
 
-    --text:        #eef2fb;
-    --muted:       #9aa9c7;
-    --faint:       #64748f;
+    --accent-blue:       #3B82F6;
+    --accent-blue-hover: #2563EB;
+    --accent-blue-soft:  rgba(59, 130, 246, 0.12);
+    --accent-blue-glow:  rgba(59, 130, 246, 0.25);
 
-    --brand:       #2f6bff;
-    --brand-hi:    #4d82ff;
-    --brand-soft:  rgba(47, 107, 255, .14);
+    --status-success:    #10B981;
+    --status-warning:    #F59E0B;
+    --status-error:      #EF4444;
 
-    --ok:          #34d399;
-    --warn:        #fbbf24;
-    --alert:       #fb7185;
+    --radius-sm:         6px;
+    --radius-md:         10px;
+    --radius-lg:         16px;
+    --radius-full:       9999px;
 
-    --shadow:      0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
-    --shadow-lg:   0 2px 4px rgba(0,0,0,.3), 0 24px 48px -24px rgba(0,0,0,.8);
+    --ease-out:          cubic-bezier(0.16, 1, 0.3, 1);
   }
 
-  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+    color-scheme: dark;
+  }
+
   body {
-    background:
-      radial-gradient(1100px 620px at 78% -12%, rgba(47,107,255,.15), transparent 62%),
-      radial-gradient(820px 520px at 4% 4%, rgba(80,160,255,.07), transparent 58%),
-      var(--bg);
-    background-attachment: fixed;
-    color: var(--text);
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    font-feature-settings: "cv02","cv03","cv04","cv11","ss01";
+    background-color: var(--bg-page);
+    color: var(--text-primary);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    letter-spacing: -0.011em;
     -webkit-font-smoothing: antialiased;
   }
-  ::selection { background: rgba(47,107,255,.32); }
 
-  h1, h2, .display { letter-spacing: -.028em; }
-  .stat { font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
-  code, pre, .mono { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+  ::selection {
+    background: rgba(59, 130, 246, 0.35);
+    color: #ffffff;
+  }
 
-  ::-webkit-scrollbar { width: 11px; height: 11px; }
+  /* ── Typography Scale ── */
+  .display-title {
+    font-size: 2.25rem;
+    line-height: 1.15;
+    font-weight: 700;
+    letter-spacing: -0.035em;
+  }
+  @media (min-width: 640px) {
+    .display-title { font-size: 2.75rem; }
+  }
+
+  .section-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .card-title {
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+  }
+
+  .mono {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-feature-settings: "liga" 0;
+  }
+
+  /* ── Subtle Surfaces & Borders ── */
+  .surface-card {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    transition: border-color 0.2s var(--ease-out), background-color 0.2s var(--ease-out);
+  }
+  .surface-card:hover {
+    border-color: var(--border-hover);
+  }
+
+  .surface-elevated {
+    background-color: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+  }
+
+  /* ── Primary Action Button ── */
+  .btn-primary-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.85rem 1.75rem;
+    background-color: var(--accent-blue);
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -4px var(--accent-blue-glow);
+    transition: all 0.18s var(--ease-out);
+    cursor: pointer;
+  }
+  .btn-primary-action:hover:not(:disabled) {
+    background-color: var(--accent-blue-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), 0 12px 28px -4px var(--accent-blue-glow);
+  }
+  .btn-primary-action:active:not(:disabled) {
+    transform: translateY(0);
+  }
+  .btn-primary-action:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+
+  .btn-subtle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.9rem;
+    background-color: rgba(255, 255, 255, 0.04);
+    color: var(--text-secondary);
+    font-weight: 500;
+    font-size: 0.8125rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    transition: all 0.15s var(--ease-out);
+    cursor: pointer;
+  }
+  .btn-subtle:hover {
+    color: var(--text-primary);
+    background-color: rgba(255, 255, 255, 0.08);
+    border-color: var(--border-hover);
+  }
+
+  /* ── Tab Switcher ── */
+  .tab-pill {
+    padding: 0.45rem 0.9rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+    transition: all 0.15s var(--ease-out);
+    cursor: pointer;
+  }
+  .tab-pill:hover {
+    color: var(--text-primary);
+  }
+  .tab-pill.is-active {
+    color: var(--text-primary);
+    background-color: rgba(255, 255, 255, 0.08);
+    font-weight: 600;
+  }
+
+  /* ── Clean Scrollbars ── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
-    background: var(--surface-3); border-radius: 99px; border: 3px solid transparent;
-    background-clip: content-box;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: var(--radius-full);
   }
-  ::-webkit-scrollbar-thumb:hover { background: #24365c; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.22); }
 
-  /* ── components ── */
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 18px;
-    box-shadow: var(--shadow);
-  }
-  .card-quiet { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 14px; }
-
-  .btn {
-    display: inline-flex; align-items: center; gap: .6rem;
-    border-radius: 999px; padding: .68rem 1.05rem .68rem 1.3rem;
-    font-size: .875rem; font-weight: 600; letter-spacing: -.01em;
-    background: var(--brand); color: #fff; border: 1px solid transparent;
-    transition: background .15s ease, transform .15s ease, box-shadow .15s ease;
-    box-shadow: 0 1px 0 rgba(255,255,255,.12) inset, 0 8px 22px -12px var(--brand);
-  }
-  .btn:hover { background: var(--brand-hi); transform: translateY(-1px); }
-  .btn:active { transform: translateY(0); }
-  .btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
-  .btn-arrow {
-    display: grid; place-items: center;
-    width: 1.4rem; height: 1.4rem; border-radius: 999px;
-    background: rgba(255,255,255,.18);
-  }
-  .btn-ghost {
-    display: inline-flex; align-items: center; gap: .45rem;
-    border-radius: 999px; padding: .5rem .95rem;
-    font-size: .8125rem; font-weight: 500;
-    color: var(--muted); border: 1px solid var(--line);
-    background: var(--surface-2); transition: all .15s ease;
-  }
-  .btn-ghost:hover { color: var(--text); border-color: var(--line-strong); background: var(--surface-3); }
-
-  .chip {
-    display: inline-flex; align-items: center; gap: .3rem;
-    border-radius: 999px; border: 1px solid; padding: .16rem .6rem;
-    font-size: 11px; font-weight: 600; line-height: 1.55; white-space: nowrap;
-  }
-  .chip-neutral { border-color: var(--line); background: var(--surface-2); color: var(--muted); }
-
-  .field {
-    width: 100%; border-radius: 12px; padding: .72rem .9rem;
-    background: var(--bg); border: 1px solid var(--line-strong); color: var(--text);
-    font-size: .875rem; transition: border-color .15s ease, box-shadow .15s ease;
-  }
-  .field::placeholder { color: var(--faint); }
-  .field:focus { outline: none; border-color: var(--brand);
-                 box-shadow: 0 0 0 3px var(--brand-soft); }
-
-  .label { font-size: 10px; font-weight: 700; letter-spacing: .09em;
-           text-transform: uppercase; color: var(--faint); }
-
-  .unit { scroll-margin-top: 96px; }
-  .unit:target { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
-
-  .datatable {
-    font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
-    font-size: 11.5px; border-collapse: collapse; width: max-content; min-width: 100%;
-  }
-  .datatable th, .datatable td { border: 1px solid var(--line); padding: 5px 10px;
-                                 text-align: left; white-space: nowrap; }
-  .datatable th { background: var(--surface-3); color: #93b8ff; position: sticky; top: 0;
-                  font-weight: 600; letter-spacing: .01em; }
-  .datatable tr:nth-child(even) td { background: rgba(255,255,255,.018); }
-
-  .prose-chunk { white-space: pre-wrap; word-break: break-word; }
-  details > summary { list-style: none; }
-  details > summary::-webkit-details-marker { display: none; }
-
-  .htmx-indicator { opacity: 0; transition: opacity .2s; }
+  /* ── HTMX Indicator ── */
+  .htmx-indicator { opacity: 0; transition: opacity 0.2s var(--ease-out); pointer-events: none; }
   .htmx-request .htmx-indicator, .htmx-request.htmx-indicator { opacity: 1; }
 </style>
 </head>
-<body class="min-h-screen">
+<body class="min-h-screen flex flex-col antialiased">
 
-<header class="sticky top-0 z-40 border-b border-[color:var(--line)]
-               bg-[color:var(--bg)]/80 backdrop-blur-xl">
-  <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3.5">
-    <a href="/" class="flex items-center gap-2.5">
-      <svg viewBox="0 0 32 32" class="h-7 w-7"><rect width="32" height="32" rx="8" fill="#2f6bff"/><path d="M16 6v20" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/><path d="M10.5 11.5h-4M10.5 20.5h-4M21.5 11.5h4M21.5 20.5h4" stroke="#bcd2ff" stroke-width="2.5" stroke-linecap="round"/></svg>
-      <span class="text-[15px] font-bold tracking-tight text-white">Cleave</span>
-    </a>
-    {% block nav %}{% endblock %}
+<!-- ── Minimal Top Navigation ────────────────────────────────────────────── -->
+<header class="sticky top-0 z-40 border-b border-[color:var(--border-subtle)] bg-[#0B1020]/80 backdrop-blur-xl">
+  <div class="mx-auto flex max-w-6xl items-center justify-between gap-6 px-6 py-3.5">
+    
+    <!-- Left: Brand -->
+    <div class="flex items-center gap-8">
+      <a href="/" class="flex items-center gap-2.5 group">
+        <div class="h-6 w-6 rounded-[var(--radius-sm)] bg-[color:var(--accent-blue)] flex items-center justify-center text-white shadow-sm transition-transform group-hover:scale-105">
+          <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="2" x2="12" y2="22"></line>
+            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+          </svg>
+        </div>
+        <span class="text-[15px] font-bold tracking-tight text-white">CLEAVE</span>
+      </a>
+
+      <!-- Primary Nav Links -->
+      <nav class="hidden md:flex items-center gap-1 text-[13px] font-medium text-[color:var(--text-secondary)]">
+        <a href="/#workspace" class="px-3 py-1.5 rounded-[var(--radius-sm)] hover:text-white hover:bg-white/[0.04] transition-colors">Workspace</a>
+        <a href="/#jobs" class="px-3 py-1.5 rounded-[var(--radius-sm)] hover:text-white hover:bg-white/[0.04] transition-colors">Processing Jobs</a>
+        <a href="/#spend" class="px-3 py-1.5 rounded-[var(--radius-sm)] hover:text-white hover:bg-white/[0.04] transition-colors">Spend</a>
+        <a href="/#evidence" class="px-3 py-1.5 rounded-[var(--radius-sm)] hover:text-white hover:bg-white/[0.04] transition-colors">Evidence</a>
+      </nav>
+    </div>
+
+    <!-- Right: Status & Utilities -->
+    <div class="flex items-center gap-3 text-xs">
+      <div class="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-[var(--radius-sm)] bg-white/[0.03] border border-[color:var(--border-subtle)] text-[color:var(--text-muted)]">
+        <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+        <span class="font-medium text-[color:var(--text-secondary)]">Engine Ready</span>
+      </div>
+      <a href="/api/usage" target="_blank" rel="noopener" class="btn-subtle !py-1 !px-2.5 mono !text-[11px]">
+        API /docs
+      </a>
+      {% block nav_extra %}{% endblock %}
+    </div>
+
   </div>
 </header>
 
-{% block body %}{% endblock %}
+<!-- ── Main Content Viewport ─────────────────────────────────────────────── -->
+<div class="flex-1 w-full">
+  {% block body %}{% endblock %}
+</div>
+
+<!-- ── Minimalist Clean Footer ───────────────────────────────────────────── -->
+<footer class="border-t border-[color:var(--border-subtle)] py-8 text-[13px] text-[color:var(--text-muted)] mt-20">
+  <div class="mx-auto max-w-6xl px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+    <div class="flex items-center gap-2">
+      <span class="font-semibold text-[color:var(--text-secondary)]">CLEAVE</span>
+      <span>·</span>
+      <span>Universal Chunking & Context Preservation Engine</span>
+    </div>
+    <div class="flex items-center gap-4 text-xs text-[color:var(--text-muted)]">
+      <span>Deterministic Structure Extraction</span>
+      <span>·</span>
+      <span>Adaptive Routing</span>
+    </div>
+  </div>
+</footer>
 
 </body>
 </html>
